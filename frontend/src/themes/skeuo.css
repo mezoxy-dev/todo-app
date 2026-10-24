@@ -1,5 +1,508 @@
-/* Pano. Starter: page background and text color only. */
+/* Pano (skeuomorphism): a cork board drawn with gradients, an oak name plank with tactile keys, a
+   notepad sheet for the form, wood-framed columns with pinned paper labels, and the cards as
+   slightly tilted pastel sticky notes in handwriting (Caveat) with a strip of tape on top. A dragged
+   note lifts: its tilt straightens and its shadow grows.
+   Every rule is scoped to [data-theme="skeuo"]. Tilts live on .card-body (never on .card, which the
+   drag library positions), and no ancestor of .card gets a transform or filter.
+   Note colour and tilt follow the todo id (the drag library's data-rfd-draggable-id on .card), so a
+   note keeps its colour when it is moved; without that attribute every note is a yellow one. */
+
+[data-theme="skeuo"] {
+  --sk-ink: #2c1b0b;
+  --sk-marker: #1f2a44;
+  --sk-paper: #fffdf4;
+  --sk-cork: #bf8f5b;
+  --sk-hand: Caveat, "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  --sk-label: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --sk-focus: #1d4ed8;
+  color-scheme: light;
+  min-height: 100%;
+  /* Cork: granules of several sizes on co-prime tiles (so no grid shows), soft mottling, and a
+     vignette. */
+  background-color: var(--sk-cork);
+  background-image:
+    radial-gradient(ellipse 120% 95% at 50% 35%, transparent 55%, rgb(50 25 8 / 0.4)),
+    radial-gradient(circle at 30% 40%, rgb(98 58 24 / 0.2) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 70% 20%, rgb(246 212 162 / 0.22) 0 0.9px, transparent 1.6px),
+    radial-gradient(ellipse 2.6px 1.6px at 20% 75%, rgb(108 64 28 / 0.42), transparent),
+    radial-gradient(ellipse 1.7px 2.8px at 60% 60%, rgb(250 220 172 / 0.36), transparent),
+    radial-gradient(ellipse 3.6px 2.4px at 45% 35%, rgb(86 50 20 / 0.36), transparent),
+    radial-gradient(ellipse 2.4px 3.8px at 35% 65%, rgb(72 40 14 / 0.32), transparent),
+    radial-gradient(ellipse 5px 3.4px at 50% 50%, rgb(255 230 190 / 0.26), transparent),
+    radial-gradient(ellipse 3.4px 5.5px at 40% 60%, rgb(80 45 15 / 0.24), transparent),
+    radial-gradient(ellipse 7px 4.5px at 65% 30%, rgb(70 38 12 / 0.2), transparent),
+    radial-gradient(ellipse at 50% 50%, rgb(60 30 10 / 0.12), transparent 65%),
+    radial-gradient(ellipse at 50% 50%, rgb(255 236 200 / 0.12), transparent 60%);
+  background-size: 100% 100%, 13px 11px, 17px 13px, 19px 23px, 29px 21px, 31px 37px, 41px 33px, 47px 43px, 53px 59px, 67px 61px, 83px 71px, 97px 89px;
+  background-position: 0 0, 0 0, 5px 3px, 9px 11px, 3px 17px, 19px 7px, 7px 29px, 11px 23px, 31px 13px, 23px 41px, 0 0, 41px 29px;
+  background-repeat: no-repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat;
+}
+
 [data-theme="skeuo"] body {
-  background-color: #b98a5a;
-  color: #2c1b0b;
+  color: var(--sk-ink);
+  font-family: var(--sk-hand);
+  font-size: 1.125rem;
+}
+
+[data-theme="skeuo"] ::selection {
+  background: rgb(253 233 107 / 0.9);
+  color: var(--sk-ink);
+}
+
+/* ---------- header: an oak plank ---------- */
+
+[data-theme="skeuo"] .app-header {
+  padding: 10px 16px 10px 22px;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.2), transparent 35%, transparent 70%, rgb(0 0 0 / 0.16)),
+    linear-gradient(180deg, transparent 0 18%, rgb(90 50 20 / 0.12) 18% 19%, transparent 19% 41%, rgb(255 240 210 / 0.1) 41% 43%, transparent 43% 62%, rgb(90 50 20 / 0.14) 62% 63.5%, transparent 63.5% 84%, rgb(90 50 20 / 0.1) 84% 85%, transparent 85%),
+    linear-gradient(90deg, #c08a52, #d29d63 22%, #c39058 45%, #d6a46b 70%, #bf8650);
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 215 / 0.55),
+    inset 0 -2px 0 rgb(80 45 15 / 0.35),
+    0 1px 0 1px rgb(90 55 25 / 0.55),
+    0 10px 16px -6px rgb(30 14 4 / 0.6);
+}
+
+/* Burned into the wood. */
+[data-theme="skeuo"] .app-title {
+  color: #3a1d08;
+  font-family: var(--sk-hand);
+  font-size: clamp(2.25rem, 5vw, 2.875rem);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgb(255 228 185 / 0.55), 0 -1px 1px rgb(40 18 4 / 0.3);
+}
+
+[data-theme="skeuo"] .theme-switcher {
+  gap: 8px;
+}
+
+/* Cream tactile keys; the pressed one stays pushed in and its LED lights up. */
+[data-theme="skeuo"] .theme-button {
+  background: linear-gradient(#fffaf0, #e9dcc3);
+  color: #3b2a18;
+  border: 1px solid #7a5a36;
+  border-radius: 7px;
+  box-shadow: inset 0 1px 0 #fff, 0 2px 0 #6b4a2a, 0 3px 5px rgb(0 0 0 / 0.35);
+  font-family: var(--sk-label);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.85);
+  cursor: pointer;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, background 80ms ease-out;
+}
+
+[data-theme="skeuo"] .theme-button::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #a39782, #5e5242 70%);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.45), 0 1px 0 rgb(255 255 255 / 0.6);
+}
+
+[data-theme="skeuo"] .theme-button:hover {
+  background: linear-gradient(#fff, #f2e8d5);
+}
+
+[data-theme="skeuo"] .theme-button:active,
+[data-theme="skeuo"] .theme-button[aria-pressed="true"] {
+  background: linear-gradient(#d5c4a3, #e6d9bf);
+  box-shadow: inset 0 2px 4px rgb(60 35 10 / 0.45), 0 1px 0 rgb(255 240 215 / 0.45);
+  transform: translateY(2px);
+}
+
+[data-theme="skeuo"] .theme-button[aria-pressed="true"]::before {
+  background: radial-gradient(circle at 35% 35%, #eaffc8, #5cc12f 55%, #2f7d14);
+  box-shadow: 0 0 6px 1px rgb(120 230 70 / 0.85);
+}
+
+[data-theme="skeuo"] .theme-button:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 2px;
+}
+
+/* ---------- add form: a notepad sheet ---------- */
+
+[data-theme="skeuo"] .add-form {
+  padding: 26px 16px 14px 46px;
+  border-radius: 2px;
+  background:
+    radial-gradient(circle at 50% 10px, #5b3a1c 0 3.5px, rgb(91 58 28 / 0.35) 4px, transparent 4.5px) 8px 0 / 24px 22px repeat-x,
+    linear-gradient(90deg, transparent 32px, rgb(214 72 72 / 0.55) 32px 33.5px, transparent 33.5px),
+    repeating-linear-gradient(180deg, transparent 0 25px, rgb(80 130 200 / 0.22) 25px 26px),
+    linear-gradient(170deg, #fffef8, #f8f2e1);
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.18), 0 10px 16px -8px rgb(30 14 4 / 0.55);
+}
+
+[data-theme="skeuo"] .field {
+  padding-left: 4px;
+  background-color: transparent;
+  border-bottom: 2px dashed rgb(60 40 20 / 0.35);
+  border-radius: 0;
+  color: var(--sk-marker);
+  font-family: var(--sk-hand);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+[data-theme="skeuo"] .add-input::placeholder {
+  color: #6f604c;
+  opacity: 1;
+}
+
+[data-theme="skeuo"] .field:hover {
+  border-bottom-color: rgb(60 40 20 / 0.6);
+}
+
+[data-theme="skeuo"] .field:focus {
+  outline: none;
+  background-color: rgb(253 233 107 / 0.35);
+  border-bottom: 2px solid var(--sk-focus);
+}
+
+/* Native arrow replaced by a hand-drawn-looking caret (two gradients, no image). */
+[data-theme="skeuo"] .add-select,
+[data-theme="skeuo"] .card-select {
+  appearance: none;
+  padding-right: 2rem;
+  background-image:
+    linear-gradient(45deg, transparent calc(50% - 1.2px), currentColor calc(50% - 1.2px), currentColor calc(50% + 1.2px), transparent calc(50% + 1.2px)),
+    linear-gradient(135deg, transparent calc(50% - 1.2px), currentColor calc(50% - 1.2px), currentColor calc(50% + 1.2px), transparent calc(50% + 1.2px));
+  background-position: right 13px center, right 6px center;
+  background-size: 7px 7px, 7px 7px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+[data-theme="skeuo"] .add-select option,
+[data-theme="skeuo"] .card-select option {
+  background: var(--sk-paper);
+  color: var(--sk-marker);
+  font-family: var(--sk-label);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+/* The add button is a pad of sticky notes. */
+[data-theme="skeuo"] .button {
+  background: linear-gradient(170deg, rgb(255 255 255 / 0.4), transparent 45%), #fde96b;
+  color: var(--sk-ink);
+  border-radius: 2px;
+  box-shadow: 1px 1px 0 #efd75a, 2px 2px 0 #e2c74b, 3px 3px 0 #d6bb42, 4px 6px 7px rgb(0 0 0 / 0.38);
+  font-family: var(--sk-hand);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, background-color 80ms ease-out;
+}
+
+[data-theme="skeuo"] .button:hover:not(:disabled) {
+  background: linear-gradient(170deg, rgb(255 255 255 / 0.5), transparent 45%), #fff07a;
+}
+
+[data-theme="skeuo"] .button:active:not(:disabled) {
+  box-shadow: 1px 1px 0 #efd75a, 2px 3px 4px rgb(0 0 0 / 0.3);
+  transform: translate(2px, 2px);
+}
+
+[data-theme="skeuo"] .button:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 4px;
+}
+
+[data-theme="skeuo"] .button:disabled {
+  background: linear-gradient(170deg, rgb(255 255 255 / 0.4), transparent 45%), #ebe4cc;
+  color: #6f6555;
+  box-shadow: 1px 1px 0 #ddd5bb, 2px 2px 0 #d1c8ac, 3px 4px 5px rgb(0 0 0 / 0.22);
+  cursor: not-allowed;
+}
+
+/* ---------- board: wood-framed cork panels ---------- */
+
+[data-theme="skeuo"] .board {
+  gap: 22px;
+}
+
+/* The frame is the border box: grain runs along each piece (horizontal on top and bottom, vertical
+   on the sides), translucent border colours add the bevel light, the inset shadow sinks the cork. */
+[data-theme="skeuo"] .column {
+  padding: 16px 14px 14px;
+  border: 13px solid;
+  border-color: rgb(255 236 205 / 0.22) rgb(30 12 2 / 0.16) rgb(30 12 2 / 0.3) rgb(255 236 205 / 0.1);
+  border-radius: 5px;
+  background:
+    linear-gradient(180deg, #7c4f27 0 1px, #9a6534 1px 3px, #86562b 3px 4.5px, #a06a37 4.5px 7px, #8a5a2d 7px 8px, #a26b38 8px 10.5px, #7a4c25 10.5px 13px) top / 100% 13px no-repeat border-box,
+    linear-gradient(0deg, #6f4422 0 1px, #94602f 1px 3.5px, #80522a 3.5px 5px, #9b6534 5px 7.5px, #86572c 7.5px 9px, #9d6735 9px 11px, #744823 11px 13px) bottom / 100% 13px no-repeat border-box,
+    linear-gradient(90deg, #7a4d26 0 1.5px, #996433 1.5px 4px, #85562b 4px 5px, #a06a37 5px 8px, #8b5b2e 8px 9.5px, #9c6635 9.5px 11.5px, #764a24 11.5px 13px) left / 13px 100% no-repeat border-box,
+    linear-gradient(270deg, #6f4422 0 1.5px, #93602f 1.5px 4px, #7f5129 4px 5.5px, #9a6434 5.5px 8px, #85562b 8px 9.5px, #976232 9.5px 11.5px, #714622 11.5px 13px) right / 13px 100% no-repeat border-box,
+    linear-gradient(rgb(70 38 12 / 0.1), rgb(70 38 12 / 0.1)) padding-box;
+  box-shadow:
+    inset 0 3px 7px rgb(30 14 4 / 0.55),
+    inset 0 0 0 1px rgb(40 20 5 / 0.35),
+    0 0 0 1px rgb(60 32 10 / 0.7),
+    0 12px 20px -8px rgb(25 12 3 / 0.65);
+}
+
+/* The column name is a paper label held by a push pin. */
+[data-theme="skeuo"] .column-title {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 2px auto 22px;
+  padding: 6px 18px 3px;
+  background: linear-gradient(175deg, #fffef9, #f5eedb);
+  color: var(--sk-ink);
+  font-family: var(--sk-hand);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.18), 0 5px 9px -3px rgb(30 14 4 / 0.5);
+  transform: rotate(-1.4deg);
+}
+
+[data-theme="skeuo"] .column:nth-child(3n + 2) .column-title {
+  transform: rotate(1.1deg);
+}
+
+[data-theme="skeuo"] .column:nth-child(3n) .column-title {
+  transform: rotate(-0.6deg);
+}
+
+[data-theme="skeuo"] .column-title::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  margin-left: -7.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--sk-pin-hi, #ff9d94), var(--sk-pin, #d32f2f) 50%, var(--sk-pin-lo, #7f1717) 85%);
+  box-shadow: 1px 3px 3px rgb(0 0 0 / 0.45), inset 0 -1px 2px rgb(0 0 0 / 0.3);
+}
+
+[data-theme="skeuo"] .column:nth-child(3n + 2) {
+  --sk-pin-hi: #9ec5ff;
+  --sk-pin: #2563eb;
+  --sk-pin-lo: #13306f;
+}
+
+[data-theme="skeuo"] .column:nth-child(3n) {
+  --sk-pin-hi: #b6f3a0;
+  --sk-pin: #2f9e44;
+  --sk-pin-lo: #145222;
+}
+
+[data-theme="skeuo"] .card-list {
+  border-radius: 4px;
+  transition: background-color 150ms ease;
+}
+
+[data-theme="skeuo"] .card-list.is-drag-over {
+  background: rgb(255 244 220 / 0.18);
+  outline: 3px dashed rgb(255 248 232 / 0.9);
+  outline-offset: 4px;
+}
+
+/* Room between notes for the tape of the next one. */
+[data-theme="skeuo"] .card {
+  padding-bottom: 20px;
+}
+
+[data-theme="skeuo"] .card:focus-visible {
+  outline: none;
+}
+
+[data-theme="skeuo"] .card-body {
+  --sk-note: #fdf1a1;
+  --sk-tilt: -1.2deg;
+  position: relative;
+  padding: 18px 14px 10px;
+  border-radius: 2px 2px 3px 3px;
+  background:
+    linear-gradient(172deg, rgb(255 255 255 / 0.38), transparent 32%),
+    linear-gradient(0deg, rgb(120 90 30 / 0.07), transparent 28%),
+    var(--sk-note);
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.14), 0 6px 7px -4px rgb(0 0 0 / 0.32), 0 16px 14px -12px rgb(0 0 0 / 0.4);
+  transform: rotate(var(--sk-tilt));
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+/* A strip of masking tape with torn ends. */
+[data-theme="skeuo"] .card-body::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 88px;
+  height: 22px;
+  margin-left: -44px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.4), rgb(255 255 255 / 0.18)), rgb(232 222 190 / 0.62);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16);
+  clip-path: polygon(2% 0, 98% 0, 100% 18%, 97% 36%, 100% 54%, 97% 72%, 100% 90%, 98% 100%, 2% 100%, 0 84%, 3% 66%, 0 48%, 3% 30%, 0 12%);
+  transform: rotate(-2.5deg);
+}
+
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="1"] .card-body { --sk-note: #fdf1a1; --sk-tilt: -1.6deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="2"] .card-body { --sk-note: #fcd3e4; --sk-tilt: 1.3deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="3"] .card-body { --sk-note: #cde6fb; --sk-tilt: -0.8deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="4"] .card-body { --sk-note: #d5f2c7; --sk-tilt: 1.7deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="5"] .card-body { --sk-note: #ffdfba; --sk-tilt: -1.3deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="6"] .card-body { --sk-note: #fcd3e4; --sk-tilt: -1.9deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="7"] .card-body { --sk-note: #fdf1a1; --sk-tilt: 0.9deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="8"] .card-body { --sk-note: #d5f2c7; --sk-tilt: -1deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="9"] .card-body { --sk-note: #cde6fb; --sk-tilt: 1.5deg; }
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="0"] .card-body { --sk-note: #ffdfba; --sk-tilt: 0.6deg; }
+
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="4"] .card-body::before,
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="7"] .card-body::before,
+[data-theme="skeuo"] .card[data-rfd-draggable-id$="0"] .card-body::before {
+  transform: rotate(3deg);
+}
+
+@media (hover: hover) {
+  [data-theme="skeuo"] .card:hover .card-body {
+    box-shadow: 0 1px 1px rgb(0 0 0 / 0.14), 0 9px 10px -5px rgb(0 0 0 / 0.34), 0 22px 18px -14px rgb(0 0 0 / 0.42);
+  }
+}
+
+[data-theme="skeuo"] .card:focus-visible .card-body {
+  outline: 3px dashed var(--sk-focus);
+  outline-offset: 5px;
+}
+
+/* Lifted off the board: straight, a little bigger, a deep soft shadow. */
+[data-theme="skeuo"] .card.is-dragging .card-body {
+  box-shadow: 0 2px 3px rgb(0 0 0 / 0.16), 0 18px 22px -8px rgb(0 0 0 / 0.42), 0 36px 40px -18px rgb(0 0 0 / 0.45);
+  transform: rotate(0deg) scale(1.045);
+}
+
+[data-theme="skeuo"] .card-title {
+  color: var(--sk-marker);
+  font-family: var(--sk-hand);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+[data-theme="skeuo"] .card-select {
+  padding-left: 2px;
+  background-color: transparent;
+  border-bottom: 1.5px dashed rgb(40 30 20 / 0.35);
+  border-radius: 0;
+  color: #3d3427;
+  font-family: var(--sk-hand);
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+[data-theme="skeuo"] .card-select:hover:not(:disabled) {
+  border-bottom-color: rgb(40 30 20 / 0.65);
+  color: var(--sk-marker);
+}
+
+[data-theme="skeuo"] .card-select:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 3px;
+}
+
+[data-theme="skeuo"] .card-select:disabled {
+  color: #7a6e5c;
+  cursor: not-allowed;
+}
+
+/* An empty spot on the board, outlined in chalk. */
+[data-theme="skeuo"] .empty {
+  margin-top: 6px;
+  padding: 22px 12px;
+  background: rgb(255 244 222 / 0.14);
+  border: 2px dashed rgb(255 246 228 / 0.8);
+  border-radius: 3px;
+  color: #2a1808;
+  font-family: var(--sk-hand);
+  font-size: 1.75rem;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 0 1px 0 rgb(255 235 205 / 0.45);
+}
+
+/* ---------- messages ---------- */
+
+/* Errors are red notes pinned in place. */
+[data-theme="skeuo"] .alert {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 18px 8px;
+  background: linear-gradient(172deg, rgb(255 255 255 / 0.35), transparent 35%), #ffc4c4;
+  color: #6b0d0d;
+  font-family: var(--sk-hand);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+  transform: rotate(-0.8deg);
+}
+
+[data-theme="skeuo"] .alert::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 18px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9d94, #d32f2f 50%, #7f1717 85%);
+  box-shadow: 1px 3px 3px rgb(0 0 0 / 0.4);
+}
+
+[data-theme="skeuo"] .status {
+  width: fit-content;
+  padding: 6px 18px 4px;
+  background: linear-gradient(175deg, #fffef9, #f3ecd8);
+  color: var(--sk-ink);
+  font-family: var(--sk-hand);
+  font-size: 1.75rem;
+  font-weight: 700;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.15), 0 6px 9px -4px rgb(30 14 4 / 0.5);
+  transform-origin: 50% 0;
+  animation: sk-sway 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes sk-sway {
+  from {
+    transform: rotate(-2deg);
+  }
+
+  to {
+    transform: rotate(2deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="skeuo"] .theme-button,
+  [data-theme="skeuo"] .field,
+  [data-theme="skeuo"] .button,
+  [data-theme="skeuo"] .card-list,
+  [data-theme="skeuo"] .card-body {
+    transition: none;
+  }
+
+  [data-theme="skeuo"] .status {
+    animation: none;
+  }
 }
