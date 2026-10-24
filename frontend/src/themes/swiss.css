@@ -1,0 +1,5 @@
+/* Swiss. Starter: page background and text color only. */
+[data-theme="swiss"] body {
+  background-color: #fff;
+  color: #000;
+}

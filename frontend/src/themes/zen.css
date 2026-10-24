@@ -1,0 +1,5 @@
+/* Zen. Starter: page background and text color only. */
+[data-theme="zen"] body {
+  background-color: #f2ece0;
+  color: #3b372f;
+}

@@ -1,0 +1,5 @@
+/* Pano. Starter: page background and text color only. */
+[data-theme="skeuo"] body {
+  background-color: #b98a5a;
+  color: #2c1b0b;
+}

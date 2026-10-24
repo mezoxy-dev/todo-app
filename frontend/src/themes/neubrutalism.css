@@ -1,0 +1,5 @@
+/* Neubrutalizm. Starter: page background and text color only. */
+[data-theme="neubrutalism"] body {
+  background-color: #fff4d6;
+  color: #111;
+}

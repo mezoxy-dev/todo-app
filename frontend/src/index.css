@@ -1,1 +1,6 @@
 @import "tailwindcss";
+@import "./themes/neubrutalism.css";
+@import "./themes/glass.css";
+@import "./themes/swiss.css";
+@import "./themes/skeuo.css";
+@import "./themes/zen.css";

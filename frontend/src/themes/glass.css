@@ -1,0 +1,5 @@
+/* Glass. Starter: page background and text color only. */
+[data-theme="glass"] body {
+  background: linear-gradient(135deg, #4c2fd6 0%, #1d4ed8 50%, #be185d 100%) fixed;
+  color: #fff;
+}

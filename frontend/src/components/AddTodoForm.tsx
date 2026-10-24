@@ -38,7 +38,7 @@ export function AddTodoForm({ categories, onCreated }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2">
+    <form onSubmit={handleSubmit} className="add-form space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           type="text"
@@ -46,13 +46,13 @@ export function AddTodoForm({ categories, onCreated }: Props) {
           placeholder="Yeni todo yaz..."
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          className="min-w-0 flex-1 rounded-md border px-3 py-2"
+          className="field add-input min-w-0 flex-1 px-3 py-2"
         />
         <select
           aria-label="Sütun"
           value={categoryId}
           onChange={(event) => setCategoryId(Number(event.target.value))}
-          className="rounded-md border px-3 py-2"
+          className="field add-select px-3 py-2"
         >
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
@@ -63,13 +63,13 @@ export function AddTodoForm({ categories, onCreated }: Props) {
         <button
           type="submit"
           disabled={submitting || title.trim() === ''}
-          className="rounded-md bg-slate-800 px-4 py-2 text-white disabled:opacity-50"
+          className="button add-button px-4 py-2"
         >
           Ekle
         </button>
       </div>
       {error !== null && (
-        <p role="alert" className="text-red-700">
+        <p role="alert" className="alert">
           {`Todo eklenemedi: ${error}`}
         </p>
       )}

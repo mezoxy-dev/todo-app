@@ -1,41 +1,20 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import type { Todo } from './api'
 import App from './App'
-import { makeTodo, mockApi, seedCategories } from './test/mockApi'
+import { cardTitles, column, deferred, mockBoard, movesSettled } from './test/appHelpers'
+import type { Handler } from './test/appHelpers'
+import { makeTodo } from './test/mockApi'
 import type { MockReply } from './test/mockApi'
+import { applyTheme, readStoredTheme } from './themes'
 
-type Routes = Parameters<typeof mockApi>[0]
-type Handler = Routes[string]
-
-// The seeded categories plus the given todos; `routes` adds or overrides routes.
-function mockBoard(todos: Todo[] = [], routes: Routes = {}) {
-  return mockApi({
-    'GET /api/categories': () => ({ body: seedCategories }),
-    'GET /api/todos': () => ({ body: todos }),
-    ...routes,
-  })
-}
-
-// A reply the test releases by hand, to observe the UI while a request is pending.
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
-}
-
-function column(name: string): HTMLElement {
-  return screen.getByRole('region', { name })
-}
-
-// Card titles of one column, top to bottom.
-function cardTitles(name: string): string[] {
-  return within(column(name))
-    .queryAllByRole('listitem')
-    .map((item) => within(item).getByRole('heading').textContent ?? '')
+// The single element matching `selector` under `root`; fails the test when there is none or
+// several of them.
+function one(selector: string, root: ParentNode = document): HTMLElement {
+  const matches = root.querySelectorAll<HTMLElement>(selector)
+  expect(matches, selector).toHaveLength(1)
+  return matches[0]
 }
 
 describe('board', () => {
@@ -62,7 +41,7 @@ describe('board', () => {
   })
 
   it('puts each todo in its column in API order and shows "Boş" in empty columns', async () => {
-    // The API answers newest first; the board must not re-sort.
+    // The API answers by column, then position; the board must not re-sort.
     mockBoard([
       makeTodo({ id: 4, title: 'Dördüncü', category_id: 1 }),
       makeTodo({ id: 3, title: 'Üçüncü', category_id: 3 }),
@@ -293,45 +272,33 @@ describe('moving cards', () => {
     expect(screen.getByLabelText('Süt al için sütun')).toHaveValue('3')
   })
 
-  it('moves a card and PATCHes a numeric category_id', async () => {
+  it('moves a card with its select to the top of the target column', async () => {
     const patch = vi.fn<Handler>(() => ({
-      body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2 }),
+      body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2, position: 0 }),
     }))
-    mockBoard([makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 })], {
-      'PATCH /api/todos/1': patch,
-    })
-    const user = userEvent.setup()
-    render(<App />)
-
-    await user.selectOptions(await screen.findByLabelText('Fatura öde için sütun'), 'Yapılıyor')
-
-    expect(await screen.findByRole('heading', { name: 'Henüz yapılmadı (0)' })).toBeInTheDocument()
-    expect(patch).toHaveBeenCalledTimes(1)
-    // A <select> value is a string; the API wants a number.
-    expect(patch.mock.calls[0][0]).toEqual({ category_id: 2 })
-    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde'])
-    expect(cardTitles('Henüz yapılmadı')).toEqual([])
-    expect(screen.getByLabelText('Fatura öde için sütun')).toHaveValue('2')
-  })
-
-  it('keeps API order (newest first) in the target column after a move', async () => {
     mockBoard(
       [
+        makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 }),
         makeTodo({ id: 2, title: 'Yeni', category_id: 2 }),
-        makeTodo({ id: 1, title: 'Eski', category_id: 1 }),
       ],
-      { 'PATCH /api/todos/1': () => ({ body: makeTodo({ id: 1, title: 'Eski', category_id: 2 }) }) },
+      { 'PATCH /api/todos/1': patch },
     )
     const user = userEvent.setup()
     render(<App />)
 
-    await user.selectOptions(await screen.findByLabelText('Eski için sütun'), 'Yapılıyor')
+    await user.selectOptions(await screen.findByLabelText('Fatura öde için sütun'), 'Yapılıyor')
+    await movesSettled()
 
-    expect(await screen.findByRole('heading', { name: 'Yapılıyor (2)' })).toBeInTheDocument()
-    expect(cardTitles('Yapılıyor')).toEqual(['Yeni', 'Eski'])
+    expect(patch).toHaveBeenCalledTimes(1)
+    // A <select> value is a string; the API wants numbers. Position 0 is the top of the column.
+    expect(patch.mock.calls[0][0]).toEqual({ category_id: 2, position: 0 })
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde', 'Yeni'])
+    expect(cardTitles('Henüz yapılmadı')).toEqual([])
+    expect(screen.getByRole('heading', { name: 'Yapılıyor (2)' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Fatura öde için sütun')).toHaveValue('2')
   })
 
-  it('disables the card select while the PATCH is pending', async () => {
+  it('shows the move before the server answers', async () => {
     const reply = deferred<MockReply>()
     mockBoard([makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 })], {
       'PATCH /api/todos/1': () => reply.promise,
@@ -339,36 +306,346 @@ describe('moving cards', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const select = await screen.findByLabelText('Fatura öde için sütun')
-    expect(select).toBeEnabled()
-    await user.selectOptions(select, 'Yapılıyor')
+    await user.selectOptions(await screen.findByLabelText('Fatura öde için sütun'), 'Yapılıyor')
 
-    expect(select).toBeDisabled()
-    // The board only changes once the server has answered.
-    expect(select).toHaveValue('1')
-    expect(cardTitles('Henüz yapılmadı')).toEqual(['Fatura öde'])
+    // The PATCH is still open, yet the card is already in its new column.
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde'])
+    expect(cardTitles('Henüz yapılmadı')).toEqual([])
+    expect(screen.getByRole('heading', { name: 'Yapılıyor (1)' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Fatura öde için sütun')).toHaveValue('2')
 
-    reply.resolve({ body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2 }) })
+    reply.resolve({ body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2, position: 0 }) })
+    await movesSettled()
 
-    expect(await screen.findByRole('heading', { name: 'Yapılıyor (1)' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Fatura öde için sütun')).toBeEnabled()
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde'])
   })
 
-  it('shows "Todo taşınamadı: <detay>" and leaves card and select on the old column on failure', async () => {
-    mockBoard([makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 })], {
-      'PATCH /api/todos/1': () => ({ status: 500, body: { error: 'boom' } }),
-    })
+  it('disables every card select while a move is saving', async () => {
+    const reply = deferred<MockReply>()
+    mockBoard(
+      [
+        makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 }),
+        makeTodo({ id: 2, title: 'Süt al', category_id: 3 }),
+        makeTodo({ id: 3, title: 'Yoğurt al', category_id: 3 }),
+      ],
+      { 'PATCH /api/todos/1': () => reply.promise },
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    const cardSelects = await screen.findAllByLabelText(/ için sütun$/)
+    expect(cardSelects).toHaveLength(3)
+    for (const select of cardSelects) expect(select).toBeEnabled()
+    // Cards can be picked up by their handle (and reached with the keyboard).
+    for (const card of document.querySelectorAll('.card')) expect(card).toHaveAttribute('tabindex', '0')
+
+    await user.selectOptions(screen.getByLabelText('Fatura öde için sütun'), 'Yapılıyor')
+
+    // The select that was used, and the ones on the other cards in any column.
+    const whileSaving = screen.getAllByLabelText(/ için sütun$/)
+    expect(whileSaving).toHaveLength(3)
+    for (const select of whileSaving) expect(select).toBeDisabled()
+    // Dragging stays on: a drag handle that goes away would take the keyboard focus with it.
+    // A drop that arrives meanwhile is turned away by App (see App.dnd.test.tsx).
+    for (const card of document.querySelectorAll('.card')) expect(card).toHaveAttribute('tabindex', '0')
+
+    reply.resolve({ body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2, position: 0 }) })
+    await movesSettled()
+
+    for (const select of screen.getAllByLabelText(/ için sütun$/)) expect(select).toBeEnabled()
+  })
+
+  it('turns away a second move while one is being saved', async () => {
+    const reply = deferred<MockReply>()
+    const patch = vi.fn<Handler>(() => reply.promise)
+    // Only the first todo has a PATCH route: a request for the second one fails the test.
+    mockBoard(
+      [
+        makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 }),
+        makeTodo({ id: 2, title: 'Süt al', category_id: 3 }),
+      ],
+      { 'PATCH /api/todos/1': patch },
+    )
     const user = userEvent.setup()
     render(<App />)
 
     await user.selectOptions(await screen.findByLabelText('Fatura öde için sütun'), 'Yapılıyor')
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/^Todo taşınamadı: boom$/)
-    expect(cardTitles('Henüz yapılmadı')).toEqual(['Fatura öde'])
-    expect(cardTitles('Yapılıyor')).toEqual([])
-    expect(screen.getByRole('heading', { name: 'Henüz yapılmadı (1)' })).toBeInTheDocument()
-    const select = screen.getByLabelText('Fatura öde için sütun')
-    expect(select).toHaveValue('1')
-    expect(select).toBeEnabled()
+    // A disabled select takes no input from a user. This change comes from outside, like a
+    // drop that ends while the first move is still being saved would.
+    const other = screen.getByLabelText('Süt al için sütun')
+    expect(other).toBeDisabled()
+    fireEvent.change(other, { target: { value: '2' } })
+
+    expect(patch).toHaveBeenCalledTimes(1)
+    expect(cardTitles('Tamamlandı')).toEqual(['Süt al'])
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde'])
+
+    reply.resolve({ body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2, position: 0 }) })
+    await movesSettled()
+
+    expect(cardTitles('Tamamlandı')).toEqual(['Süt al'])
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde'])
+  })
+
+  it('reverts the move and shows the error above the board on failure', async () => {
+    mockBoard(
+      [
+        makeTodo({ id: 1, title: 'A', category_id: 1 }),
+        makeTodo({ id: 2, title: 'B', category_id: 1 }),
+      ],
+      { 'PATCH /api/todos/2': () => ({ status: 500, body: { error: 'boom' } }) },
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.selectOptions(await screen.findByLabelText('B için sütun'), 'Tamamlandı')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/^Todo taşınamadı: boom$/)
+    expect(alert).toHaveClass('alert')
+    // Above the board, not inside a column or a card.
+    const board = one('.board')
+    expect(board).not.toContainElement(alert)
+    expect(alert.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Everything is back exactly where it was.
+    expect(cardTitles('Henüz yapılmadı')).toEqual(['A', 'B'])
+    expect(cardTitles('Tamamlandı')).toEqual([])
+    expect(screen.getByRole('heading', { name: 'Henüz yapılmadı (2)' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tamamlandı (0)' })).toBeInTheDocument()
+    expect(screen.getByLabelText('B için sütun')).toHaveValue('1')
+    // And nothing stays locked.
+    for (const select of screen.getAllByLabelText(/ için sütun$/)) expect(select).toBeEnabled()
+  })
+
+  it('clears the move error once the next move starts', async () => {
+    let patches = 0
+    mockBoard([makeTodo({ id: 1, title: 'A', category_id: 1 })], {
+      'PATCH /api/todos/1': () => {
+        patches += 1
+        if (patches === 1) {
+          return { status: 500, body: { error: 'boom' } }
+        }
+        return { body: makeTodo({ id: 1, title: 'A', category_id: 3, position: 0 }) }
+      },
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.selectOptions(await screen.findByLabelText('A için sütun'), 'Tamamlandı')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Todo taşınamadı: boom')
+
+    await user.selectOptions(screen.getByLabelText('A için sütun'), 'Tamamlandı')
+    await movesSettled()
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(cardTitles('Tamamlandı')).toEqual(['A'])
+  })
+
+  it('keeps a todo that was added while a move was saving when that move fails', async () => {
+    const reply = deferred<MockReply>()
+    mockBoard([makeTodo({ id: 1, title: 'A', category_id: 1 })], {
+      'PATCH /api/todos/1': () => reply.promise,
+      'POST /api/todos': () => ({ status: 201, body: makeTodo({ id: 2, title: 'Yeni', category_id: 1 }) }),
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.selectOptions(await screen.findByLabelText('A için sütun'), 'Tamamlandı')
+    // The add form is not locked by a saving move.
+    await user.type(screen.getByLabelText('Todo başlığı'), 'Yeni{Enter}')
+    expect(await screen.findByRole('heading', { name: 'Henüz yapılmadı (1)' })).toBeInTheDocument()
+    expect(cardTitles('Henüz yapılmadı')).toEqual(['Yeni'])
+    expect(cardTitles('Tamamlandı')).toEqual(['A'])
+
+    reply.resolve({ status: 500, body: { error: 'boom' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Todo taşınamadı: boom')
+    // The move is undone, the new todo is still on top of its column, as on the server.
+    expect(cardTitles('Henüz yapılmadı')).toEqual(['Yeni', 'A'])
+    expect(cardTitles('Tamamlandı')).toEqual([])
+  })
+
+  it('keeps an empty column as a drop target', async () => {
+    mockBoard([makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 })])
+    render(<App />)
+    await screen.findByRole('region', { name: 'Yapılıyor' })
+
+    // "Boş" lives inside the drop area, so the area exists while the column is empty.
+    const list = one('.card-list', column('Yapılıyor'))
+    expect(within(list).getByText('Boş')).toBeInTheDocument()
+    // It is the drag library's drop area for category 2, like the one of the full column.
+    expect(list).toHaveAttribute('data-rfd-droppable-id', '2')
+    expect(one('.card-list', column('Henüz yapılmadı'))).toHaveAttribute('data-rfd-droppable-id', '1')
+    // A card is draggable under its todo id.
+    expect(one('.card', column('Henüz yapılmadı'))).toHaveAttribute('data-rfd-draggable-id', '1')
+  })
+
+  it('renders and moves a card under StrictMode without console warnings', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockBoard(
+      [
+        makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 }),
+        makeTodo({ id: 2, title: 'Yeni', category_id: 2 }),
+      ],
+      { 'PATCH /api/todos/1': () => ({ body: makeTodo({ id: 1, title: 'Fatura öde', category_id: 2, position: 0 }) }) },
+    )
+    const user = userEvent.setup()
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+
+    await user.selectOptions(await screen.findByLabelText('Fatura öde için sütun'), 'Yapılıyor')
+    await movesSettled()
+
+    expect(cardTitles('Yapılıyor')).toEqual(['Fatura öde', 'Yeni'])
+    expect(errors).not.toHaveBeenCalled()
+    expect(warnings).not.toHaveBeenCalled()
+  })
+})
+
+describe('theme menu', () => {
+  it('switches themes from the menu', async () => {
+    mockBoard()
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
+
+    const menu = screen.getByRole('group', { name: 'Tasarım' })
+    expect(within(menu).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Neubrutalizm',
+      'Glass',
+      'Swiss',
+      'Pano',
+      'Zen',
+    ])
+    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(within(menu).getByRole('button', { name: 'Zen' }))
+
+    expect(document.documentElement.dataset.theme).toBe('zen')
+    expect(localStorage.getItem('todo-theme')).toBe('zen')
+    expect(within(menu).getByRole('button', { name: 'Zen' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'false')
+    // Only the theme changes: the board stays as it is, nothing is loaded again.
+    expect(screen.getByRole('region', { name: 'Yapılıyor' })).toBeInTheDocument()
+  })
+
+  it('marks the stored theme as pressed when the app opens', async () => {
+    // What main.tsx does before the first render.
+    localStorage.setItem('todo-theme', 'skeuo')
+    applyTheme(readStoredTheme())
+    mockBoard()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
+
+    const menu = screen.getByRole('group', { name: 'Tasarım' })
+    expect(document.documentElement.dataset.theme).toBe('skeuo')
+    expect(within(menu).getByRole('button', { name: 'Pano' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('treats an unknown <html data-theme> as the default theme', async () => {
+    document.documentElement.dataset.theme = 'bogus'
+    mockBoard()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
+
+    const menu = screen.getByRole('group', { name: 'Tasarım' })
+    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(menu).getAllByRole('button', { pressed: true })).toHaveLength(1)
+  })
+
+  it('stays in the header while loading and after a load error', async () => {
+    mockBoard([], { 'GET /api/todos': () => ({ status: 500, body: { error: 'internal server error' } }) })
+    render(<App />)
+
+    expect(screen.getByText('Yükleniyor...')).toBeInTheDocument()
+    expect(within(one('.app-header')).getByRole('group', { name: 'Tasarım' })).toBeInTheDocument()
+
+    await screen.findByRole('alert')
+    expect(within(one('.app-header')).getByRole('group', { name: 'Tasarım' })).toBeInTheDocument()
+  })
+})
+
+// The classes the theme stylesheets are written against (spec section 5.3).
+describe('markup contract', () => {
+  it('renders the markup contract', async () => {
+    mockBoard([
+      makeTodo({ id: 1, title: 'Fatura öde', category_id: 1 }),
+      makeTodo({ id: 2, title: 'Süt al', category_id: 3 }),
+    ])
+    render(<App />)
+    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
+
+    // Page and header: the title and the theme menu.
+    const app = one('main.app')
+    const header = one(':scope > .app-header', app)
+    expect(one('h1.app-title', header)).toHaveTextContent("Todo'lar")
+    const switcher = one('.theme-switcher', header)
+    expect(switcher).toBe(screen.getByRole('group', { name: 'Tasarım' }))
+    expect(switcher.querySelectorAll('button.theme-button')).toHaveLength(5)
+
+    // Add form.
+    const form = one('form.add-form', app)
+    expect(one('input.field.add-input', form)).toBe(screen.getByLabelText('Todo başlığı'))
+    expect(one('select.field.add-select', form)).toBe(screen.getByLabelText('Sütun'))
+    expect(one('button.button.add-button', form)).toBe(screen.getByRole('button', { name: 'Ekle' }))
+
+    // Board: one column per category in order, each with a title and a drop area.
+    const board = one('.board', app)
+    const columns = Array.from(board.querySelectorAll<HTMLElement>(':scope > .column'))
+    expect(columns.map((element) => element.dataset.column)).toEqual(['1', '2', '3'])
+    for (const element of columns) {
+      expect(one('.column-title', element)).toHaveTextContent(/^.+ \(\d\)$/)
+      one('.card-list', element)
+    }
+    const [first, second, third] = columns
+
+    // A card: .card > .card-body > .card-title, and the select lives in the body too.
+    const card = one('.card-list .card', first)
+    expect(one(':scope > .card-body > .card-title', card)).toHaveTextContent('Fatura öde')
+    expect(one(':scope > .card-body > .card-select', card)).toBe(screen.getByLabelText('Fatura öde için sütun'))
+    expect(first.querySelector('.empty')).toBeNull()
+    expect(one('.card-list .card .card-title', third)).toHaveTextContent('Süt al')
+
+    // The empty column keeps its drop area, and "Boş" sits inside it.
+    expect(one('.card-list .empty', second)).toHaveTextContent('Boş')
+    expect(second.querySelector('.card')).toBeNull()
+
+    // Nothing left over from the other states.
+    expect(document.querySelector('.status, .alert')).toBeNull()
+  })
+
+  it('marks the loading text with the status class', async () => {
+    mockBoard()
+    render(<App />)
+
+    expect(screen.getByText('Yükleniyor...')).toHaveClass('status')
+
+    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
+  })
+
+  it('marks the load error as an alert and the retry button as a button', async () => {
+    mockBoard([], { 'GET /api/todos': () => ({ status: 500, body: { error: 'internal server error' } }) })
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveClass('alert')
+    expect(screen.getByRole('button', { name: 'Tekrar dene' })).toHaveClass('button')
+  })
+
+  it('marks the add error as an alert inside the form', async () => {
+    mockBoard([], { 'POST /api/todos': () => ({ status: 400, body: { error: 'title is required' } }) })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(await screen.findByLabelText('Todo başlığı'), 'Fatura öde{Enter}')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveClass('alert')
+    expect(alert.closest('.add-form')).not.toBeNull()
   })
 })
