@@ -25,7 +25,9 @@ export function TodoCard({ todo, index, categories, disabled, onMove }: Props) {
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           role="listitem"
-          className={`card pb-2${snapshot.isDragging ? ' is-dragging' : ''}`}
+          // Each branch is a whole class list: Tailwind only finds a utility that stands alone in
+          // a string, not one glued to a `${...}`.
+          className={snapshot.isDragging ? 'card pb-2 is-dragging' : 'card pb-2'}
         >
           <div className="card-body space-y-2 p-3">
             <h3 className="card-title break-words">{todo.title}</h3>

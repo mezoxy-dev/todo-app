@@ -41,7 +41,12 @@ export function Board({ categories, todos, moving, onMove }: Props) {
                   <ul
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className={`card-list min-h-16 flex-1${snapshot.isDraggingOver ? ' is-drag-over' : ''}`}
+                    // Whole class lists again, so that Tailwind finds each utility standing alone.
+                    className={
+                      snapshot.isDraggingOver
+                        ? 'card-list min-h-16 flex-1 is-drag-over'
+                        : 'card-list min-h-16 flex-1'
+                    }
                   >
                     {cards.length === 0 && <p className="empty">Boş</p>}
                     {cards.map((todo, index) => (
