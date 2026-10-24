@@ -10,14 +10,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// todoJSON mirrors the Todo shape of spec 6.2, with the timestamps as plain
-// text so that their format can be checked.
+// todoJSON mirrors the Todo shape of spec 6.2 and step 2 spec 4.5, with the
+// timestamps as plain text so that their format can be checked.
 type todoJSON struct {
 	ID         int64           `json:"id"`
 	Title      string          `json:"title"`
@@ -25,6 +26,7 @@ type todoJSON struct {
 	Metadata   json.RawMessage `json:"metadata"`
 	CreatedAt  string          `json:"created_at"`
 	UpdatedAt  string          `json:"updated_at"`
+	Position   int64           `json:"position"`
 }
 
 // String makes failure messages readable: the metadata prints as JSON, not as bytes.
@@ -65,6 +67,9 @@ func TestCreateTodo(t *testing.T) {
 	if first.CategoryID != 1 {
 		t.Errorf("category_id = %d, want 1 (the first column)", first.CategoryID)
 	}
+	if first.Position != 0 {
+		t.Errorf("position = %d, want 0 (the top of its column)", first.Position)
+	}
 	var metadata map[string]any
 	if err := json.Unmarshal(first.Metadata, &metadata); err != nil || metadata == nil || len(metadata) != 0 {
 		t.Errorf("metadata = %s, want an empty JSON object", first.Metadata)
@@ -89,12 +94,16 @@ func TestCreateTodo(t *testing.T) {
 		t.Errorf("metadata = %s, want %s", second.Metadata, `{"a":1}`)
 	}
 
-	// Both are listed, the newest one first.
+	// Both are listed, column by column (step 2 spec 4.3): Süt al is in the first
+	// column, Fatura öde in the third, and each is the top of its own column.
 	rec = do(t, h, http.MethodGet, "/api/todos", "")
 	wantJSON(t, rec, http.StatusOK)
 	list := decodeBody[[]todoJSON](t, rec)
-	if len(list) != 2 || list[0].Title != "Fatura öde" || list[1].Title != "Süt al" {
-		t.Errorf("GET /api/todos = %v, want [Fatura öde, Süt al]", list)
+	if len(list) != 2 || list[0].Title != "Süt al" || list[1].Title != "Fatura öde" {
+		t.Errorf("GET /api/todos = %v, want [Süt al, Fatura öde]", list)
+	}
+	if len(list) == 2 && (list[0].Position != 0 || list[1].Position != 0) {
+		t.Errorf("GET /api/todos = %v, want both todos at position 0", list)
 	}
 }
 
@@ -350,6 +359,170 @@ func TestPatchTodoValidation(t *testing.T) {
 	for _, id := range []string{"abc", "0", "-1"} {
 		wantError(t, do(t, h, http.MethodPatch, "/api/todos/"+id, `{"title":"a"}`), http.StatusBadRequest, "invalid id")
 	}
+}
+
+// wantColumn checks that GET /api/todos lists exactly the given titles in the
+// column, top to bottom, and that their positions are 0..n-1.
+func wantColumn(t *testing.T, h http.Handler, categoryID int64, want ...string) {
+	t.Helper()
+	rec := do(t, h, http.MethodGet, "/api/todos", "")
+	wantJSON(t, rec, http.StatusOK)
+	got := []string{}
+	for _, todo := range decodeBody[[]todoJSON](t, rec) {
+		if todo.CategoryID != categoryID {
+			continue
+		}
+		if todo.Position != int64(len(got)) {
+			t.Errorf("column %d: %s has position %d, want %d (0..n-1)", categoryID, todo.Title, todo.Position, len(got))
+		}
+		got = append(got, todo.Title)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("column %d = %q, want %q (top to bottom)", categoryID, got, want)
+	}
+}
+
+// wantPositionFields checks that every todo in body, one JSON object or an
+// array of them, has a "position" field that holds an integer. Decoding into
+// todoJSON could not tell a missing field from the position 0.
+func wantPositionFields(t *testing.T, body []byte) {
+	t.Helper()
+	var todos []map[string]json.RawMessage
+	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("[")) {
+		if err := json.Unmarshal(body, &todos); err != nil {
+			t.Fatalf("body %q is not an array of objects: %v", body, err)
+		}
+	} else {
+		var todo map[string]json.RawMessage
+		if err := json.Unmarshal(body, &todo); err != nil {
+			t.Fatalf("body %q is not an object: %v", body, err)
+		}
+		todos = append(todos, todo)
+	}
+	if len(todos) == 0 {
+		t.Fatalf("body %q holds no todo", body)
+	}
+	for _, todo := range todos {
+		raw, ok := todo["position"]
+		if !ok {
+			t.Errorf(`todo %s has no "position" field`, todo["id"])
+			continue
+		}
+		if _, err := strconv.ParseInt(string(raw), 10, 64); err != nil {
+			t.Errorf(`todo %s: "position" = %s, want an integer`, todo["id"], raw)
+		}
+	}
+}
+
+// Every response that carries a todo has its position (step 2 spec 4.5).
+func TestTodoResponsesHavePosition(t *testing.T) {
+	h, _ := newTestAPI(t)
+
+	rec := do(t, h, http.MethodPost, "/api/todos", `{"title":"A"}`)
+	wantJSON(t, rec, http.StatusCreated)
+	wantPositionFields(t, rec.Body.Bytes())
+	path := todoPath(decodeBody[todoJSON](t, rec).ID)
+
+	for _, tt := range []struct{ name, method, path, body string }{
+		{"GET one", http.MethodGet, path, ""},
+		{"PATCH", http.MethodPatch, path, `{"title":"A2"}`},
+		{"GET list", http.MethodGet, "/api/todos", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, h, tt.method, tt.path, tt.body)
+
+			wantJSON(t, rec, http.StatusOK)
+			wantPositionFields(t, rec.Body.Bytes())
+		})
+	}
+}
+
+func TestPatchTodoPosition(t *testing.T) {
+	h, _ := newTestAPI(t)
+	a := mustCreate(t, h, `{"title":"A","category_id":1}`)
+	b := mustCreate(t, h, `{"title":"B","category_id":1}`)
+	mustCreate(t, h, `{"title":"C","category_id":1}`)
+	wantColumn(t, h, 1, "C", "B", "A") // a new todo goes to the top
+
+	// The position alone is enough for a PATCH: A goes from the bottom to the top.
+	rec := do(t, h, http.MethodPatch, todoPath(a.ID), `{"position":0}`)
+	wantJSON(t, rec, http.StatusOK)
+	wantPositionFields(t, rec.Body.Bytes())
+	if got := decodeBody[todoJSON](t, rec); got.ID != a.ID || got.CategoryID != 1 || got.Position != 0 {
+		t.Errorf("after moving A to the top: %v, want todo %d in category 1 at position 0", got, a.ID)
+	}
+	wantColumn(t, h, 1, "A", "C", "B")
+
+	// Column and position together. Column 3 is empty, so position 1 lies past
+	// its end and means the end, which is position 0.
+	rec = do(t, h, http.MethodPatch, todoPath(b.ID), `{"category_id":3,"position":1}`)
+	wantJSON(t, rec, http.StatusOK)
+	wantPositionFields(t, rec.Body.Bytes())
+	if got := decodeBody[todoJSON](t, rec); got.ID != b.ID || got.CategoryID != 3 || got.Position != 0 {
+		t.Errorf("after moving B to column 3: %v, want todo %d in category 3 at position 0", got, b.ID)
+	}
+	wantColumn(t, h, 1, "A", "C")
+	wantColumn(t, h, 3, "B")
+
+	// The category alone, as in step 1, puts the todo on top of its new column.
+	rec = do(t, h, http.MethodPatch, todoPath(a.ID), `{"category_id":3}`)
+	wantJSON(t, rec, http.StatusOK)
+	if got := decodeBody[todoJSON](t, rec); got.CategoryID != 3 || got.Position != 0 {
+		t.Errorf("after moving A to column 3: %v, want category 3 at position 0", got)
+	}
+	wantColumn(t, h, 1, "C")
+	wantColumn(t, h, 3, "A", "B")
+
+	// Every todo of the list has a position.
+	rec = do(t, h, http.MethodGet, "/api/todos", "")
+	wantJSON(t, rec, http.StatusOK)
+	wantPositionFields(t, rec.Body.Bytes())
+}
+
+func TestPositionValidation(t *testing.T) {
+	h, _ := newTestAPI(t)
+	created := mustCreate(t, h, `{"title":"A"}`)
+	path := todoPath(created.ID)
+
+	tests := []struct {
+		name, body, want string
+	}{
+		{"null", `{"position":null}`, "position must not be null"},
+		{"negative", `{"position":-1}`, "position must be a non-negative integer"},
+		{"fraction", `{"position":1.5}`, "position must be a non-negative integer"},
+		{"string", `{"position":"1"}`, "position must be a non-negative integer"},
+
+		// Beyond the cases of the brief: the position shares the checks of the
+		// other fields, and does not get around them.
+		{"boolean", `{"position":true}`, "position must be a non-negative integer"},
+		{"array", `{"position":[0]}`, "position must be a non-negative integer"},
+		{"too large for an integer", `{"position":99999999999999999999}`, "position must be a non-negative integer"},
+		{"negative next to a category", `{"category_id":2,"position":-1}`, "position must be a non-negative integer"},
+		{"valid position, unknown category", `{"category_id":99,"position":0}`, "category does not exist"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, h, http.MethodPatch, path, tt.body)
+
+			wantError(t, rec, http.StatusBadRequest, tt.want)
+		})
+	}
+
+	// A new todo always goes to the top, so POST has no position to take.
+	rec := do(t, h, http.MethodPost, "/api/todos", `{"title":"x","position":0}`)
+	wantError(t, rec, http.StatusBadRequest, `unknown field "position"`)
+
+	// A todo that does not exist is still a 404, whatever the position is.
+	wantError(t, do(t, h, http.MethodPatch, "/api/todos/999", `{"position":0}`), http.StatusNotFound, "todo not found")
+
+	// None of the rejected requests changed or stored anything.
+	rec = do(t, h, http.MethodGet, path, "")
+	if got := decodeBody[todoJSON](t, rec); !reflect.DeepEqual(got, created) {
+		t.Errorf("after the rejected requests the todo is %v, want it unchanged: %v", got, created)
+	}
+	wantColumn(t, h, 1, "A")
+	wantColumn(t, h, 2)
+	wantColumn(t, h, 3)
 }
 
 func TestDeleteTodo(t *testing.T) {

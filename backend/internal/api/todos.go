@@ -19,14 +19,24 @@ const msgInvalidID = "invalid id"
 
 var errTitleRequired = errors.New("title is required")
 
-// todoInput is the request body of POST and PATCH /api/todos. Its fields stay
-// raw JSON, so that a field that was not sent (nil), one that was sent as null
-// (the text "null") and one of the wrong type can be told apart and answered
-// with the right message.
+// todoInput is the request body of POST /api/todos, and the fields that the body
+// of PATCH /api/todos/{id} has in common with it. Its fields stay raw JSON, so
+// that a field that was not sent (nil), one that was sent as null (the text
+// "null") and one of the wrong type can be told apart and answered with the
+// right message.
 type todoInput struct {
 	Title      json.RawMessage `json:"title"`
 	CategoryID json.RawMessage `json:"category_id"`
 	Metadata   json.RawMessage `json:"metadata"`
+}
+
+// updateInput is the request body of PATCH /api/todos/{id}: the fields of
+// todoInput and the todo's position in its column. POST is decoded into a
+// todoInput, which has no position: a new todo always goes to the top of its
+// column, so for POST the position is an unknown field.
+type updateInput struct {
+	todoInput
+	Position json.RawMessage `json:"position"`
 }
 
 // params validates the fields that were sent and returns them. A field that
@@ -55,6 +65,23 @@ func (in todoInput) params() (db.UpdateTodoParams, error) {
 			return p, err
 		}
 		p.Metadata = metadata
+	}
+	return p, nil
+}
+
+// params is todoInput.params and, if a position was sent, the position. The
+// text of the error is meant for the client.
+func (in updateInput) params() (db.UpdateTodoParams, error) {
+	p, err := in.todoInput.params()
+	if err != nil {
+		return p, err
+	}
+	if in.Position != nil {
+		position, err := parsePosition(in.Position)
+		if err != nil {
+			return p, err
+		}
+		p.Position = &position
 	}
 	return p, nil
 }
@@ -95,6 +122,20 @@ func parseCategoryID(raw json.RawMessage) (int64, error) {
 		return 0, errors.New("category_id must be an integer")
 	}
 	return id, nil
+}
+
+// parsePosition returns the position in the column, which must be a JSON
+// integer of at least 0. A position past the end of the column is fine: the
+// store takes it to mean the end.
+func parsePosition(raw json.RawMessage) (int64, error) {
+	if isNull(raw) {
+		return 0, errors.New("position must not be null")
+	}
+	var position int64
+	if err := json.Unmarshal(raw, &position); err != nil || position < 0 {
+		return 0, errors.New("position must be a non-negative integer")
+	}
+	return position, nil
 }
 
 // parseMetadata returns the metadata in compact form. It must be a JSON object.
@@ -162,14 +203,15 @@ func (s *server) getTodo(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateTodo changes the fields that the body names; moving a todo to another
-// column is a change of category_id.
+// column is a change of category_id, and position puts it at a place in its
+// column.
 func (s *server) updateTodo(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r)
 	if !ok {
 		writeError(w, http.StatusBadRequest, msgInvalidID)
 		return
 	}
-	var in todoInput
+	var in updateInput
 	if err := decodeJSON(w, r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -180,7 +222,7 @@ func (s *server) updateTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The store would still bump updated_at for an update without fields.
-	if p.Title == nil && p.CategoryID == nil && p.Metadata == nil {
+	if p.Title == nil && p.CategoryID == nil && p.Position == nil && p.Metadata == nil {
 		writeError(w, http.StatusBadRequest, "no fields to update")
 		return
 	}
