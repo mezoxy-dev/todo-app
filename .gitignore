@@ -1,0 +1,5 @@
+# SQLite veritabanı (çalışınca oluşur)
+backend/data/
+*.db
+*.db-shm
+*.db-wal
