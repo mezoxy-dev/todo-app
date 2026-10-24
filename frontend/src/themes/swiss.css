@@ -224,8 +224,8 @@
   outline-offset: 6px;
 }
 
-/* The space between rows is padding on .card (the drag library measures it). Stated here as well,
-   because the production build currently lacks the pb-2 utility the component relies on. */
+/* The space between rows is padding on .card (the drag library measures it). The theme sets this
+   spacing itself rather than relying on the component's pb-2 (this un-layered rule wins over it). */
 [data-theme="swiss"] .card {
   padding-bottom: 8px;
 }

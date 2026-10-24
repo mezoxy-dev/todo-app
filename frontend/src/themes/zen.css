@@ -236,8 +236,8 @@
   box-shadow: 0 0 0 10px var(--zen-matcha-wash);
 }
 
-/* The space between cards is padding on .card (the drag library measures it). Stated here as well,
-   because the production build currently lacks the pb-2 utility the component relies on. */
+/* The space between cards is padding on .card (the drag library measures it). The theme sets this
+   spacing itself rather than relying on the component's pb-2 (this un-layered rule wins over it). */
 [data-theme="zen"] .card {
   padding-bottom: 8px;
 }
