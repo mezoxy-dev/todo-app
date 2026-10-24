@@ -50,14 +50,34 @@ cd frontend && npm test && npm run lint && npm run build
 |---|---|---|
 | GET | `/api/health` | `{"status":"ok"}` |
 | GET | `/api/categories` | Sütunlar, `position` sırasıyla |
-| GET | `/api/todos` | Todo'lar, en yeni üstte |
+| GET | `/api/todos` | Todo'lar, sütun sütun ve her sütunda yukarıdan aşağı (`position`) |
 | POST | `/api/todos` | `{"title", "category_id"?, "metadata"?}` → 201 |
 | GET | `/api/todos/{id}` | Tek todo |
-| PATCH | `/api/todos/{id}` | `title`, `category_id` (sütun taşıma), `metadata` alanlarından en az biri |
+| PATCH | `/api/todos/{id}` | `title`, `category_id` (sütun taşıma), `position` (sütundaki sıra, 0 = en üst), `metadata` alanlarından en az biri |
 | DELETE | `/api/todos/{id}` | 204 |
 
 Hatalar `{"error": "..."}` biçiminde döner. Ayrıntılar ve doğrulama kuralları:
 [`docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md`](docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md) §6.
+
+## Tasarımlar
+
+Sağ üstteki minik menüden 5 tasarım arasında anında geçilir; seçim tarayıcıda hatırlanır.
+Hepsi aynı sayfa ve aynı işlevdir — yalnızca görünüm değişir. Kartlar sürüklenerek sütunlar
+arasında taşınır ve sütun içinde sıralanır; sıra veritabanında saklanır.
+
+| Menü | Tema dosyası |
+|---|---|
+| Neubrutalizm | `frontend/src/themes/neubrutalism.css` |
+| Glass | `frontend/src/themes/glass.css` |
+| Swiss | `frontend/src/themes/swiss.css` |
+| Pano | `frontend/src/themes/skeuo.css` |
+| Zen | `frontend/src/themes/zen.css` |
+
+**Bir tasarımı kaldırmak:** tema dosyasını sil, `frontend/src/index.css` içindeki `@import`
+satırını ve `frontend/src/themes/index.ts` listesindeki girdiyi kaldır. Tek tasarım kalınca menü
+kendiliğinden gizlenir. Temalar, bileşenlerdeki anlamlı sınıfları (`.board`, `.column`, `.card`,
+`.card-body`, ...) `[data-theme="<id>"]` altında stillendirir; liste tasarım spec'inde
+(`docs/superpowers/specs/2026-10-24-todo-app-designs-dnd-design.md` §5.3).
 
 ## Proje yapısı
 
@@ -69,7 +89,9 @@ backend/
     migrations/        NNNN_aciklama.sql — açılışta sırayla, bir kez uygulanır
 frontend/
   src/api.ts           tipli API istemcisi
-  src/components/      pano, ekleme formu, kart
+  src/board.ts         sürükle-bırak sonrası yerel sıralama (API ile aynı kural)
+  src/components/      pano (sürükle-bırak), ekleme formu, kart, tema menüsü
+  src/themes/          tema listesi (index.ts) ve tema başına bir CSS dosyası
 docs/superpowers/      tasarım spec'i ve implementation planı
 ```
 

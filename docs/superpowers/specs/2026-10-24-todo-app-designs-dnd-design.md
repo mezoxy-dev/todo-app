@@ -174,7 +174,10 @@ efekt) tema CSS'lerindedir.
   `PATCH /api/todos/{id}` gövdesi `{"category_id": X, "position": N}` → başarıda sunucunun
   döndürdüğü todo yerel kopyanın yerine konur (sıra korunur); hatada önceki durum geri yüklenir
   ve panonun üstünde `Todo taşınamadı: <detay>` (`role="alert"`) gösterilir.
-- Bir taşıma kaydedilirken yeni sürükleme ve tüm kart seçicileri devre dışıdır (yarış olmaz).
+- Bir taşıma kaydedilirken tüm kart seçicileri devre dışıdır; bu sırada bırakılan bir sürükleme
+  yok sayılır ve kart yerinde kalır (yarış olmaz). Sürükleme tutamakları kaldırılmaz, böylece
+  klavyeyle sürüklemede odak bırakılan kartta kalır. (Uygulama sırasında revize edildi: ilk
+  sürümdeki "yeni sürükleme devre dışı" kuralı tutamakları kaldırıp klavye odağını kaybettiriyordu.)
 - **Ekleme:** adım 1 ile aynı (sunucu yanıtı beklenir); yeni kart sütununun en üstünde görünür.
 - **Sıra kaynağı:** arayüzde sütun içi sıra, yerel dizideki sıradır; ilk yüklemede API sırası
   (`category_id, position`) kullanılır.
