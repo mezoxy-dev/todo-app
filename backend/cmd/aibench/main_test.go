@@ -162,9 +162,12 @@ func TestRunReport(t *testing.T) {
 	if got := fake.calls(); got != len(oracle) {
 		t.Errorf("%d calls, want one for each of the %d samples", got, len(oracle))
 	}
+	// Two of the samples are answered wrong; the rest right. Counted from the set,
+	// so that adding samples to it does not break this test.
+	hits := len(oracle) - 2
 	for _, want := range []string{
 		"Model: gemini-3.5-flash-lite",
-		"İsabet: 40/42 (%95,2)",
+		fmt.Sprintf("İsabet: %d/%d (%%%s)", hits, len(oracle), percent(hits, len(oracle))),
 		"hedef %85: ULAŞILDI",
 		"Medyan süre:",
 		"Hediye",
@@ -178,8 +181,8 @@ func TestRunReport(t *testing.T) {
 		}
 	}
 	// One line for every sample as it is measured.
-	if n := strings.Count(out, "] OK "); n != 40 {
-		t.Errorf("%d lines marked OK, want 40", n)
+	if n := strings.Count(out, "] OK "); n != hits {
+		t.Errorf("%d lines marked OK, want %d", n, hits)
 	}
 	if n := strings.Count(out, "] YANLIŞ "); n != 2 {
 		t.Errorf("%d lines marked YANLIŞ, want 2", n)

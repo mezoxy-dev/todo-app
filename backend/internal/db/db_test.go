@@ -35,7 +35,7 @@ var wantCategories = []Category{
 	{ID: catInbox, Key: "inbox", Name: "Gelen kutusu", Position: 0,
 		Description: "Sistem sütunu: sınıflandırılmayı bekleyen ya da sınıflandırılamayan kartlar."},
 	{ID: catPurchase, Key: "purchase", Name: "Satın alım", Position: 1,
-		Description: "Satın alınacak ya da sipariş edilecek şeyler. Örnek: süt al, kulaklık sipariş et."},
+		Description: "Satın alınacak ya da sipariş edilecek şeyler; markete, bakkala ya da pazara gitmek ve alışveriş yapmak. Örnek: süt al, kulaklık sipariş et, bakkala git, market alışverişi yap."},
 	{ID: catResearch, Key: "research", Name: "Araştırma", Position: 2,
 		Description: "Bilgi toplama, öğrenme, karşılaştırma ya da ne yapılacağı için gerekli bilgisi verilmemiş belirsiz işler. Örnek: tatil için otel bak, X nedir öğren, bir hediye bul."},
 	{ID: catCommunication, Key: "communication", Name: "İletişim", Position: 3,
@@ -47,7 +47,7 @@ var wantCategories = []Category{
 	{ID: catWork, Key: "work", Name: "İş", Position: 6,
 		Description: "Mesleki görevler. Örnek: sunumu bitir, kod incelemesi."},
 	{ID: catHome, Key: "home", Name: "Ev & Kişisel", Position: 7,
-		Description: "Ev işleri, sağlık, spor, kişisel bakım. Örnek: çamaşır yıka, spora git."},
+		Description: "Evde yapılan işler, sağlık, spor ve kişisel bakım. Alışverişe gitmek buraya değil Satın alım'a girer. Örnek: çamaşır yıka, spora git, banyo yap."},
 	{ID: catOther, Key: "other", Name: "Diğer", Position: 8,
 		Description: "Hiçbir kategoriye uymayanlar."},
 }

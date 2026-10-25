@@ -43,6 +43,11 @@
   { "title": "Balkondaki çiçekleri sula", "expected": "home" },
   { "title": "Bulaşıkları makineye diz", "expected": "home" },
   { "title": "Her gün iki litre su iç", "expected": "home" },
+  { "title": "Banyo yap", "expected": "home" },
+
+  { "title": "Bakkala git", "expected": "purchase" },
+  { "title": "Markete uğra", "expected": "purchase" },
+  { "title": "Pazar alışverişi yap", "expected": "purchase" },
 
   { "title": "Dua et", "expected": "other" },
   { "title": "Rüya günlüğüne yaz", "expected": "other" },

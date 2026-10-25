@@ -49,13 +49,13 @@ ALTER TABLE categories ADD COLUMN description TEXT NOT NULL DEFAULT '';
 
 INSERT INTO categories (key, name, description, position) VALUES
   ('inbox',         'Gelen kutusu',       'Sistem sütunu: sınıflandırılmayı bekleyen ya da sınıflandırılamayan kartlar.', 0),
-  ('purchase',      'Satın alım',         'Satın alınacak ya da sipariş edilecek şeyler. Örnek: süt al, kulaklık sipariş et.', 1),
+  ('purchase',      'Satın alım',         'Satın alınacak ya da sipariş edilecek şeyler; markete, bakkala ya da pazara gitmek ve alışveriş yapmak. Örnek: süt al, kulaklık sipariş et, bakkala git, market alışverişi yap.', 1),
   ('research',      'Araştırma',          'Bilgi toplama, öğrenme, karşılaştırma ya da ne yapılacağı için gerekli bilgisi verilmemiş belirsiz işler. Örnek: tatil için otel bak, X nedir öğren, bir hediye bul.', 2),
   ('communication', 'İletişim',           'Birini arama, mesaj ya da e-posta gönderme. Örnek: annemi ara, Ali''ye mail at.', 3),
   ('payment',       'Ödeme',              'Fatura, kira, vergi ve diğer para işleri. Örnek: elektrik faturasını öde.', 4),
   ('appointment',   'Randevu & Etkinlik', 'Tarihi ya da saati olan işler. Örnek: dişçi randevusu al, cuma toplantısı.', 5),
   ('work',          'İş',                 'Mesleki görevler. Örnek: sunumu bitir, kod incelemesi.', 6),
-  ('home',          'Ev & Kişisel',       'Ev işleri, sağlık, spor, kişisel bakım. Örnek: çamaşır yıka, spora git.', 7),
+  ('home',          'Ev & Kişisel',       'Evde yapılan işler, sağlık, spor ve kişisel bakım. Alışverişe gitmek buraya değil Satın alım''a girer. Örnek: çamaşır yıka, spora git, banyo yap.', 7),
   ('other',         'Diğer',              'Hiçbir kategoriye uymayanlar.', 8);
 
 -- 2) Todo'lara durum, açıklama, sınıflandırma durumu
