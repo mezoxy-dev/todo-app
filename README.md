@@ -59,25 +59,18 @@ cd frontend && npm test && npm run lint && npm run build
 Hatalar `{"error": "..."}` biçiminde döner. Ayrıntılar ve doğrulama kuralları:
 [`docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md`](docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md) §6.
 
-## Tasarımlar
+## Tasarım
 
-Sağ üstteki minik menüden 5 tasarım arasında anında geçilir; seçim tarayıcıda hatırlanır.
-Hepsi aynı sayfa ve aynı işlevdir — yalnızca görünüm değişir. Kartlar sürüklenerek sütunlar
-arasında taşınır ve sütun içinde sıralanır; sıra veritabanında saklanır.
+Arayüz **Pano** (skeuomorfizm) temasını kullanır: mantar pano, ahşap çerçeveli sütunlar,
+bantlı yapışkan notlar. Kartlar sürüklenerek sütunlar arasında taşınır ve sütun içinde
+sıralanır; sıra veritabanında saklanır. (Adım 2'de denenen diğer 4 tasarım kaldırıldı.)
 
-| Menü | Tema dosyası |
-|---|---|
-| Neubrutalizm | `frontend/src/themes/neubrutalism.css` |
-| Glass | `frontend/src/themes/glass.css` |
-| Swiss | `frontend/src/themes/swiss.css` |
-| Pano | `frontend/src/themes/skeuo.css` |
-| Zen | `frontend/src/themes/zen.css` |
-
-**Bir tasarımı kaldırmak:** tema dosyasını sil, `frontend/src/index.css` içindeki `@import`
-satırını ve `frontend/src/themes/index.ts` listesindeki girdiyi kaldır. Tek tasarım kalınca menü
-kendiliğinden gizlenir. Temalar, bileşenlerdeki anlamlı sınıfları (`.board`, `.column`, `.card`,
-`.card-body`, ...) `[data-theme="<id>"]` altında stillendirir; liste tasarım spec'inde
-(`docs/superpowers/specs/2026-10-24-todo-app-designs-dnd-design.md` §5.3).
+Tema `frontend/src/themes/skeuo.css` dosyasındadır ve bileşenlerdeki anlamlı sınıfları
+(`.board`, `.column`, `.card`, `.card-body`, ...) `[data-theme="skeuo"]` altında stillendirir;
+sınıf listesi tasarım spec'inde (`docs/superpowers/specs/2026-10-24-todo-app-designs-dnd-design.md`
+§5.3). **Yeni tema eklemek:** `frontend/src/themes/<id>.css` dosyası, `frontend/src/index.css`'e bir
+`@import` satırı ve `frontend/src/themes/index.ts` listesine bir girdi. İki ya da daha fazla tema
+olunca sağ üstteki tema menüsü kendiliğinden görünür.
 
 ## Proje yapısı
 

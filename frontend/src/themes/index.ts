@@ -1,13 +1,7 @@
 // The themes the menu offers, in menu order. An id is the value of <html data-theme> and
 // names a stylesheet, themes/<id>.css; the first theme is the default one.
 // To drop a theme: delete its stylesheet, its @import in index.css and its entry here.
-export const themes = [
-  { id: 'neubrutalism', label: 'Neubrutalizm' },
-  { id: 'glass', label: 'Glass' },
-  { id: 'swiss', label: 'Swiss' },
-  { id: 'skeuo', label: 'Pano' },
-  { id: 'zen', label: 'Zen' },
-] as const
+export const themes = [{ id: 'skeuo', label: 'Pano' }] as const
 
 export type ThemeId = (typeof themes)[number]['id']
 

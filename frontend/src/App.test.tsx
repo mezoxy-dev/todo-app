@@ -508,66 +508,28 @@ describe('moving cards', () => {
 })
 
 describe('theme menu', () => {
-  it('switches themes from the menu', async () => {
-    mockBoard()
-    const user = userEvent.setup()
+  // Only the Pano theme is left, so there is nothing to choose and the menu is not rendered.
+  it('is not shown while a single theme is left: loading, load error or ready', async () => {
+    mockBoard([], { 'GET /api/todos': () => ({ status: 500, body: { error: 'internal server error' } }) })
     render(<App />)
-    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
 
-    const menu = screen.getByRole('group', { name: 'Tasarım' })
-    expect(within(menu).getAllByRole('button').map((button) => button.textContent)).toEqual([
-      'Neubrutalizm',
-      'Glass',
-      'Swiss',
-      'Pano',
-      'Zen',
-    ])
-    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Yükleniyor...')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Tasarım' })).not.toBeInTheDocument()
 
-    await user.click(within(menu).getByRole('button', { name: 'Zen' }))
-
-    expect(document.documentElement.dataset.theme).toBe('zen')
-    expect(localStorage.getItem('todo-theme')).toBe('zen')
-    expect(within(menu).getByRole('button', { name: 'Zen' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'false')
-    // Only the theme changes: the board stays as it is, nothing is loaded again.
-    expect(screen.getByRole('region', { name: 'Yapılıyor' })).toBeInTheDocument()
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('group', { name: 'Tasarım' })).not.toBeInTheDocument()
   })
 
-  it('marks the stored theme as pressed when the app opens', async () => {
-    // What main.tsx does before the first render.
-    localStorage.setItem('todo-theme', 'skeuo')
+  it('applies the Pano theme on <html> even when a removed theme was stored', async () => {
+    // What main.tsx does before the first render; 'zen' was picked before it was removed.
+    localStorage.setItem('todo-theme', 'zen')
     applyTheme(readStoredTheme())
     mockBoard()
     render(<App />)
     await screen.findByRole('region', { name: 'Henüz yapılmadı' })
 
-    const menu = screen.getByRole('group', { name: 'Tasarım' })
     expect(document.documentElement.dataset.theme).toBe('skeuo')
-    expect(within(menu).getByRole('button', { name: 'Pano' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('treats an unknown <html data-theme> as the default theme', async () => {
-    document.documentElement.dataset.theme = 'bogus'
-    mockBoard()
-    render(<App />)
-    await screen.findByRole('region', { name: 'Henüz yapılmadı' })
-
-    const menu = screen.getByRole('group', { name: 'Tasarım' })
-    expect(within(menu).getByRole('button', { name: 'Neubrutalizm' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(menu).getAllByRole('button', { pressed: true })).toHaveLength(1)
-  })
-
-  it('stays in the header while loading and after a load error', async () => {
-    mockBoard([], { 'GET /api/todos': () => ({ status: 500, body: { error: 'internal server error' } }) })
-    render(<App />)
-
-    expect(screen.getByText('Yükleniyor...')).toBeInTheDocument()
-    expect(within(one('.app-header')).getByRole('group', { name: 'Tasarım' })).toBeInTheDocument()
-
-    await screen.findByRole('alert')
-    expect(within(one('.app-header')).getByRole('group', { name: 'Tasarım' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Tasarım' })).not.toBeInTheDocument()
   })
 })
 
@@ -581,13 +543,11 @@ describe('markup contract', () => {
     render(<App />)
     await screen.findByRole('region', { name: 'Henüz yapılmadı' })
 
-    // Page and header: the title and the theme menu.
+    // Page and header: the title; the theme menu is not rendered while a single theme is left.
     const app = one('main.app')
     const header = one(':scope > .app-header', app)
     expect(one('h1.app-title', header)).toHaveTextContent("Todo'lar")
-    const switcher = one('.theme-switcher', header)
-    expect(switcher).toBe(screen.getByRole('group', { name: 'Tasarım' }))
-    expect(switcher.querySelectorAll('button.theme-button')).toHaveLength(5)
+    expect(header.querySelector('.theme-switcher')).toBeNull()
 
     // Add form.
     const form = one('form.add-form', app)
