@@ -1,21 +1,31 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { createTodo } from '../api'
-import type { Category, Todo } from '../api'
+import { createTodo, errorText } from '../api'
+import type { Status, Todo } from '../api'
+import { statuses } from '../statuses'
 
 type Props = {
-  categories: Category[]
   onCreated: (todo: Todo) => void
 }
 
-export function AddTodoForm({ categories, onCreated }: Props) {
+// There is no category to choose: a new todo lands in Gelen kutusu and the AI picks its column.
+export function AddTodoForm({ onCreated }: Props) {
   const [title, setTitle] = useState('')
-  const [categoryId, setCategoryId] = useState<number | undefined>(categories[0]?.id)
+  // The description field is closed until "Açıklama ekle" asks for it.
+  const [describing, setDescribing] = useState(false)
+  const [description, setDescription] = useState('')
+  const [status, setStatus] = useState<Status>('todo')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const descriptionField = useRef<HTMLTextAreaElement>(null)
   // Unlike `submitting`, the ref changes synchronously, so a second submit that
   // arrives before React has re-rendered the disabled button is still ignored.
   const inFlight = useRef(false)
+
+  // The button that opened the field is gone; the keyboard user goes on typing in the field.
+  useEffect(() => {
+    if (describing) descriptionField.current?.focus()
+  }, [describing])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -26,11 +36,15 @@ export function AddTodoForm({ categories, onCreated }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const todo = await createTodo({ title: trimmed, category_id: categoryId })
+      const text = description.trim()
+      const todo = await createTodo({ title: trimmed, ...(text === '' ? {} : { description: text }), status })
       onCreated(todo)
+      // The next todo starts from scratch; the chosen status is kept, as the chosen column was.
       setTitle('')
+      setDescription('')
+      setDescribing(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(errorText(err))
     } finally {
       inFlight.current = false
       setSubmitting(false)
@@ -38,7 +52,7 @@ export function AddTodoForm({ categories, onCreated }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="add-form space-y-2">
+    <form onSubmit={handleSubmit} className="add-form mx-auto w-full max-w-5xl space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           type="text"
@@ -49,14 +63,15 @@ export function AddTodoForm({ categories, onCreated }: Props) {
           className="field add-input min-w-0 flex-1 px-3 py-2"
         />
         <select
-          aria-label="Sütun"
-          value={categoryId}
-          onChange={(event) => setCategoryId(Number(event.target.value))}
-          className="field add-select px-3 py-2"
+          aria-label="Durum"
+          value={status}
+          // A <select> value is a string; it is one of the values offered below.
+          onChange={(event) => setStatus(event.target.value as Status)}
+          className="field add-select add-status px-3 py-2"
         >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
+          {statuses.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -68,6 +83,21 @@ export function AddTodoForm({ categories, onCreated }: Props) {
           Ekle
         </button>
       </div>
+      {describing ? (
+        <textarea
+          ref={descriptionField}
+          aria-label="Açıklama"
+          placeholder="Açıklama (isteğe bağlı)"
+          rows={2}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          className="field add-description block w-full px-3 py-2"
+        />
+      ) : (
+        <button type="button" onClick={() => setDescribing(true)} className="add-description-toggle px-2 py-1">
+          Açıklama ekle
+        </button>
+      )}
       {error !== null && (
         <p role="alert" className="alert">
           {`Todo eklenemedi: ${error}`}

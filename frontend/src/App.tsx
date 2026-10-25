@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { getCategories, getTodos, updateTodo } from './api'
-import type { Category, Todo } from './api'
-import { moveTodo } from './board'
+import { classifyTodo, errorText, getCategories, getTodos, updateTodo } from './api'
+import type { Category, Status, Todo } from './api'
+import { moveTodo, placeOnTop } from './board'
 import { AddTodoForm } from './components/AddTodoForm'
 import { Board } from './components/Board'
+import { LogOverlay } from './components/LogOverlay'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
+import { usePendingPolling } from './usePendingPolling'
 
-type Status = 'loading' | 'error' | 'ready'
+type Load = 'loading' | 'error' | 'ready'
 
 // The order the todos had before a move that could not be saved. A todo added while the move was
 // being saved is not in `before`; it stays, on top, where the server has put it.
@@ -16,19 +18,25 @@ function undoMove(current: Todo[], before: Todo[]): Todo[] {
 }
 
 // The class names that mean nothing to Tailwind (app, board, card, ...) are what the theme
-// stylesheets in themes/ are written against; the Tailwind utilities only lay things out.
+// stylesheets in themes/ are written against; the Tailwind utilities only lay things out. The page
+// is as wide as the window, for the board to use it; the header, the form and the messages keep to
+// the width of a page.
 export default function App() {
-  const [status, setStatus] = useState<Status>('loading')
+  const [load, setLoad] = useState<Load>('loading')
   const [attempt, setAttempt] = useState(0)
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
   const [moving, setMoving] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
+  // The description editors that are open, by todo id, with the text in them. They are here and
+  // not in the cards because the board builds a card anew when its column changes, which happens
+  // by itself when the AI classifies it.
+  const [drafts, setDrafts] = useState<ReadonlyMap<number, string>>(new Map())
   // While a move is being saved, a second one is turned away. The card selects are off then, but
   // the cards stay draggable (a drag handle that goes away would take the keyboard focus with it),
   // so a drop can still arrive: it is ignored, and the card stays where the list says. Unlike
   // `moving`, the ref changes synchronously, so this holds before React has rendered the
-  // disabled selects as well.
+  // disabled selects as well. The polling reads it too, to keep its answers away from a move.
   const moveInFlight = useRef(false)
 
   // Loads on mount and again whenever "Tekrar dene" bumps `attempt`.
@@ -39,10 +47,10 @@ export default function App() {
         if (stale) return
         setCategories(loadedCategories)
         setTodos(loadedTodos)
-        setStatus('ready')
+        setLoad('ready')
       },
       () => {
-        if (!stale) setStatus('error')
+        if (!stale) setLoad('error')
       },
     )
     return () => {
@@ -51,14 +59,28 @@ export default function App() {
   }, [attempt])
 
   function retry() {
-    setStatus('loading')
+    setLoad('loading')
     setAttempt((current) => current + 1)
   }
 
-  // A new todo is on top of its column (position 0), and a column is shown in the order of the
-  // list, so it goes to the front.
+  // The cards the AI has not answered for yet are asked after every second.
+  const waiting = todos.some((todo) => todo.classification === 'pending')
+  usePendingPolling(load === 'ready' && waiting, setTodos, moveInFlight)
+
+  // The server's copy of a todo replaces the local one; the order stays as the board shows it. If
+  // the copy says another column than the one the board knows (the AI classified the todo while
+  // the request was open), the todo goes on top of that column, as any classified card does.
+  function replaceTodo(saved: Todo) {
+    setTodos((current) => {
+      const local = current.find((todo) => todo.id === saved.id)
+      if (local !== undefined && local.category_id !== saved.category_id) return placeOnTop(current, saved)
+      return current.map((todo) => (todo.id === saved.id ? saved : todo))
+    })
+  }
+
+  // A new todo is on top of Gelen kutusu, waiting for the AI.
   function handleCreated(created: Todo) {
-    setTodos((current) => [created, ...current])
+    setTodos((current) => placeOnTop(current, created))
   }
 
   // The board shows a move at once and the server is told afterwards; if that fails, the move
@@ -71,46 +93,84 @@ export default function App() {
     setMoving(true)
     setMoveError(null)
     try {
-      const saved = await updateTodo(todoId, { category_id: toCategoryId, position: toIndex })
-      // The server's todo replaces the local one; the order stays as the board shows it.
-      setTodos((current) => current.map((todo) => (todo.id === saved.id ? saved : todo)))
+      replaceTodo(await updateTodo(todoId, { category_id: toCategoryId, position: toIndex }))
     } catch (err) {
       setTodos((current) => undoMove(current, before))
-      setMoveError(err instanceof Error ? err.message : String(err))
+      setMoveError(errorText(err))
     } finally {
       moveInFlight.current = false
       setMoving(false)
     }
   }
 
+  // The next three are not shown before the server has answered. A card that asks for one shows
+  // the error of a failed request itself, so they let it reject.
+  async function handleStatusChange(todoId: number, status: Status) {
+    replaceTodo(await updateTodo(todoId, { status }))
+  }
+
+  function handleDraftChange(todoId: number, draft: string | undefined) {
+    setDrafts((current) => {
+      const next = new Map(current)
+      if (draft === undefined) next.delete(todoId)
+      else next.set(todoId, draft)
+      return next
+    })
+  }
+
+  async function handleSaveDescription(todoId: number, description: string) {
+    replaceTodo(await updateTodo(todoId, { description }))
+    handleDraftChange(todoId, undefined)
+  }
+
+  // The server has put the todo back on top of Gelen kutusu, waiting for the AI again.
+  async function handleRetry(todoId: number) {
+    const saved = await classifyTodo(todoId)
+    setTodos((current) => placeOnTop(current, saved))
+  }
+
   return (
-    <main className="app mx-auto max-w-5xl space-y-6 p-4">
-      <header className="app-header flex flex-wrap items-center justify-between gap-3">
-        <h1 className="app-title">Todo'lar</h1>
-        <ThemeSwitcher />
-      </header>
-      {status === 'loading' && <p className="status">Yükleniyor...</p>}
-      {status === 'error' && (
-        <div className="space-y-2">
-          <p role="alert" className="alert">
-            Sunucuya ulaşılamadı.
-          </p>
-          <button type="button" onClick={retry} className="button px-3 py-1">
-            Tekrar dene
-          </button>
-        </div>
-      )}
-      {status === 'ready' && (
-        <>
-          <AddTodoForm categories={categories} onCreated={handleCreated} />
-          {moveError !== null && (
+    <>
+      <main className="app space-y-6 p-4">
+        <header className="app-header mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3">
+          <h1 className="app-title">Todo'lar</h1>
+          <ThemeSwitcher />
+        </header>
+        {load === 'loading' && <p className="status">Yükleniyor...</p>}
+        {load === 'error' && (
+          <div className="space-y-2">
             <p role="alert" className="alert">
-              {`Todo taşınamadı: ${moveError}`}
+              Sunucuya ulaşılamadı.
             </p>
-          )}
-          <Board categories={categories} todos={todos} moving={moving} onMove={handleMove} />
-        </>
-      )}
-    </main>
+            <button type="button" onClick={retry} className="button px-3 py-1">
+              Tekrar dene
+            </button>
+          </div>
+        )}
+        {load === 'ready' && (
+          <>
+            <AddTodoForm onCreated={handleCreated} />
+            {moveError !== null && (
+              <p role="alert" className="alert mx-auto w-full max-w-5xl">
+                {`Todo taşınamadı: ${moveError}`}
+              </p>
+            )}
+            <Board
+              categories={categories}
+              todos={todos}
+              moving={moving}
+              drafts={drafts}
+              onMove={handleMove}
+              onStatusChange={handleStatusChange}
+              onDraftChange={handleDraftChange}
+              onSaveDescription={handleSaveDescription}
+              onRetry={handleRetry}
+            />
+          </>
+        )}
+      </main>
+      {/* Fixed at the bottom right, whatever the board is doing; closed until the user opens it. */}
+      <LogOverlay />
+    </>
   )
 }
