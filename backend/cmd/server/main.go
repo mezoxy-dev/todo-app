@@ -13,6 +13,8 @@
 //   - AI_MIN_INTERVAL: the shortest time between two calls (default 4s).
 //   - GEMINI_BASE_URL: where the Gemini API is (default
 //     https://generativelanguage.googleapis.com); a fake server in tests.
+//   - STATIC_DIR: a folder with the built frontend to serve next to the API
+//     (default empty: API only).
 package main
 
 import (
@@ -32,6 +34,7 @@ import (
 	"todoapp/internal/applog"
 	"todoapp/internal/classify"
 	"todoapp/internal/db"
+	"todoapp/internal/web"
 )
 
 // logCapacity is the number of entries the log panel can go back.
@@ -49,6 +52,7 @@ func main() {
 func run() (err error) {
 	addr := envOr("ADDR", "127.0.0.1:8080")
 	dbPath := envOr("DB_PATH", "data/todos.db")
+	staticDir := os.Getenv("STATIC_DIR")
 	settings, err := ai.SettingsFromEnv(os.Getenv)
 	if err != nil {
 		return fmt.Errorf("read the settings of the AI: %w", err)
@@ -88,6 +92,14 @@ func run() (err error) {
 		MinInterval: settings.MinInterval,
 	})
 
+	handler := api.New(store, logs, worker)
+	if staticDir != "" {
+		// The built frontend next to the API, as the Docker image runs it.
+		if handler, err = web.Handler(handler, staticDir); err != nil {
+			return err
+		}
+	}
+
 	// Listening before logging, so that "listening" is not logged for an address
 	// that turns out to be taken.
 	ln, err := net.Listen("tcp", addr)
@@ -95,7 +107,7 @@ func run() (err error) {
 		return err
 	}
 	srv := &http.Server{
-		Handler:           api.New(store, logs, worker),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -125,7 +137,7 @@ func run() (err error) {
 			serveErr <- err
 		}
 	}()
-	slog.Info("listening", "addr", "http://"+addr, "db", dbPath, "model", settings.Model, "ai", settings.APIKey != "")
+	slog.Info("listening", "addr", "http://"+addr, "db", dbPath, "model", settings.Model, "ai", settings.APIKey != "", "static", staticDir)
 
 	select {
 	case err := <-serveErr:

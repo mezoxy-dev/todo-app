@@ -1,0 +1,13 @@
+# Allowlist: only the sources the image is built from. Nothing else (database,
+# backups, logs, .env, .git, editor settings) reaches the build.
+*
+!backend/
+!frontend/
+backend/data/
+**/node_modules/
+frontend/dist/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.log
+**/.env*

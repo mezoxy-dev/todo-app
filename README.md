@@ -10,11 +10,39 @@ yapay zekâ (Google Gemini, ücretsiz katman) karar verir; kartı elle taşımak
 
 ## Gereksinimler
 
-- Go 1.26+
-- Node.js 24+ ve npm 11+
+- Docker ile çalıştırmak için yalnızca Docker (Docker Desktop ya da Docker Engine + Compose)
+- Geliştirme için Go 1.26+, Node.js 24+ ve npm 11+
 - Yapay zekâ için ücretsiz bir Gemini API anahtarı (isteğe bağlı; bkz. [Anahtar kurulumu](#anahtar-kurulumu-ücretsiz))
 
-## Çalıştırma
+## Docker ile çalıştırma
+
+Go ya da Node kurmak gerekmez; arayüz ve API tek adreste açılır.
+
+```bash
+git clone https://github.com/<kullanıcı>/<depo>.git
+cd <depo>
+cp .env.example .env    # isteğe bağlı: Gemini anahtarını .env'e yaz
+docker compose up -d    # ilk seferde imaj derlenir (birkaç dakika)
+```
+
+Ardından tarayıcıda **http://localhost:8080** adresini aç.
+
+- **Gemini anahtarı:** `.env` dosyasındaki `GEMINI_API_KEY` ya da kabuktaki aynı adlı ortam değişkeni
+  (ikisi de varsa kabuktaki geçerli). `.env` git'e girmez. Anahtar yoksa uygulama çalışır, kartlar
+  `sınıflandırılamadı` olarak kalır; anahtarı ekleyip `docker compose up -d` ile yeniden başlattıktan
+  sonra kartlarda **Tekrar dene**'ye bas.
+- **Port:** 8080 doluysa `.env`'de başka bir port seç (`APP_PORT=8090`) ya da
+  `APP_PORT=8090 docker compose up -d` çalıştır.
+- **Loglar:** `docker compose logs -f`
+- **Durdurma:** `docker compose down` (veriler kalır). Verileri de silmek için `docker compose down -v`.
+- **Güncelleme:** `git pull`, ardından `docker compose up -d --build`.
+
+Veriler `todo-data` adlı Docker volume'unda durur (geliştirme kurulumunun `backend/data/`
+veritabanından ayrıdır). Uygulamada giriş yoktur; bu yüzden port yalnızca bu bilgisayara
+(`127.0.0.1`) açılır, ağdaki başka cihazlar erişemez. Konteyner root olmayan bir kullanıcıyla, salt
+okunur dosya sistemiyle ve Linux yetkileri kapalı olarak çalışır.
+
+## Çalıştırma (geliştirme)
 
 İki ayrı terminalde:
 
@@ -44,6 +72,7 @@ sunucusuna iletir; sunucuyu `Ctrl+C` ile kapatabilirsin.
 | `AI_TIMEOUT` | `20s` | Tek çağrının zaman aşımı. |
 | `AI_MIN_INTERVAL` | `4s` | Ardışık iki çağrı arasındaki en kısa süre (ücretsiz katmanın dakika sınırı için). |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com` | API adresi; testlerde sahte sunucu için. |
+| `STATIC_DIR` | (yok) | Derlenmiş arayüzün klasörü (`frontend/dist`). Doluysa sunucu arayüzü de sunar (Docker imajı böyle çalışır); boşsa yalnızca API. |
 
 ## Yapay zekâ ile kategoriler
 
@@ -155,6 +184,7 @@ backend/
   internal/classify/   sınıflandırma işçisi: tek sıra, çağrılar arası bekleme
   internal/db/         SQLite bağlantısı, gömülü migration'lar, veri erişimi
     migrations/        NNNN_aciklama.sql — açılışta sırayla, bir kez uygulanır
+  internal/web/        derlenmiş arayüzü API'nin yanında sunar (STATIC_DIR)
 frontend/
   src/api.ts           tipli API istemcisi
   src/board.ts         sürükle-bırak ve sınıflandırma sonrası yerel sıralama (API ile aynı kural)
@@ -162,6 +192,9 @@ frontend/
   src/usePendingPolling.ts  bekleyen kartlar için 1 saniyelik yoklama
   src/components/      pano (sürükle-bırak), ekleme formu, kart, log paneli, tema menüsü
   src/themes/          tema listesi (index.ts) ve tema başına bir CSS dosyası
+Dockerfile             imaj: derlenmiş arayüz + sunucu, root olmayan kullanıcı
+compose.yaml           Docker ile çalıştırma (port, volume, anahtar)
+.env.example           .env için örnek (Gemini anahtarı, port)
 docs/superpowers/      tasarım spec'leri ve implementation planları
 ```
 
