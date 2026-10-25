@@ -4,6 +4,8 @@ export type Todo = {
   id: number
   title: string
   category_id: number
+  // Place inside its column, 0 = top.
+  position: number
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -18,6 +20,8 @@ export type CreateTodoInput = {
 export type UpdateTodoInput = {
   title?: string
   category_id?: number
+  // Index in the target column once the todo has left its old place.
+  position?: number
   metadata?: Record<string, unknown>
 }
 

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -20,6 +22,7 @@ func sameTodo(a, b Todo) bool {
 	return a.ID == b.ID &&
 		a.Title == b.Title &&
 		a.CategoryID == b.CategoryID &&
+		a.Position == b.Position &&
 		string(a.Metadata) == string(b.Metadata) &&
 		a.CreatedAt.Equal(b.CreatedAt) &&
 		a.UpdatedAt.Equal(b.UpdatedAt)
@@ -28,9 +31,106 @@ func sameTodo(a, b Todo) bool {
 // showTodo formats a todo for failure messages; %+v would print the metadata as
 // a list of byte values.
 func showTodo(t Todo) string {
-	return fmt.Sprintf("{id=%d title=%q category=%d metadata=%s created=%s updated=%s}",
-		t.ID, t.Title, t.CategoryID, t.Metadata,
+	return fmt.Sprintf("{id=%d title=%q category=%d position=%d metadata=%s created=%s updated=%s}",
+		t.ID, t.Title, t.CategoryID, t.Position, t.Metadata,
 		t.CreatedAt.Format(time.RFC3339Nano), t.UpdatedAt.Format(time.RFC3339Nano))
+}
+
+// order returns the titles of the todos of a column from top to bottom, by
+// their positions. It reads the table itself and does not rely on the sort of
+// ListTodos.
+func order(t *testing.T, s *Store, categoryID int64) []string {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(),
+		`SELECT title FROM todos WHERE category_id = ? ORDER BY position, id`, categoryID)
+	if err != nil {
+		t.Fatalf("order of category %d: %v", categoryID, err)
+	}
+	defer rows.Close()
+
+	titles := []string{}
+	for rows.Next() {
+		var title string
+		if err := rows.Scan(&title); err != nil {
+			t.Fatalf("order of category %d: %v", categoryID, err)
+		}
+		titles = append(titles, title)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("order of category %d: %v", categoryID, err)
+	}
+	return titles
+}
+
+// assertOrder fails the test unless the column holds exactly the given titles,
+// from top to bottom.
+func assertOrder(t *testing.T, s *Store, categoryID int64, want ...string) {
+	t.Helper()
+	if got := order(t, s, categoryID); !slices.Equal(got, want) {
+		t.Errorf("column %d = %q, want %q (top to bottom)", categoryID, got, want)
+	}
+}
+
+// assertDensePositions checks the invariant of step 2 spec 4.2: in every
+// column the positions of the todos are exactly 0..n-1, with no gap and no
+// duplicate.
+func assertDensePositions(t *testing.T, s *Store) {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(), `SELECT category_id, position FROM todos ORDER BY category_id, position`)
+	if err != nil {
+		t.Fatalf("read positions: %v", err)
+	}
+	defer rows.Close()
+
+	positions := make(map[int64][]int64) // category id -> positions, ascending
+	for rows.Next() {
+		var categoryID, position int64
+		if err := rows.Scan(&categoryID, &position); err != nil {
+			t.Fatalf("read positions: %v", err)
+		}
+		positions[categoryID] = append(positions[categoryID], position)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read positions: %v", err)
+	}
+	for _, categoryID := range slices.Sorted(maps.Keys(positions)) {
+		got := positions[categoryID]
+		want := make([]int64, len(got))
+		for i := range want {
+			want[i] = int64(i)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("column %d: positions = %v, want %v (0..n-1)", categoryID, got, want)
+		}
+	}
+}
+
+// createInOrder creates one todo per title in the column, one after the other,
+// and returns their ids by title. A new todo goes to the top, so the column ends
+// up in the reverse order: the last title is on top.
+func createInOrder(t *testing.T, s *Store, categoryID int64, titles ...string) map[string]int64 {
+	t.Helper()
+	ids := make(map[string]int64, len(titles))
+	for _, title := range titles {
+		todo, err := s.CreateTodo(t.Context(), CreateTodoParams{Title: title, CategoryID: ptr(categoryID)})
+		if err != nil {
+			t.Fatalf("CreateTodo(%s): %v", title, err)
+		}
+		ids[title] = todo.ID
+	}
+	return ids
+}
+
+// newBoard returns a store whose column 1 holds A, B, C and whose column 2 holds
+// D, E, each from top to bottom, and the ids of the todos by title.
+func newBoard(t *testing.T) (*Store, map[string]int64) {
+	t.Helper()
+	s := newTestStore(t)
+	ids := createInOrder(t, s, 1, "C", "B", "A")
+	maps.Copy(ids, createInOrder(t, s, 2, "E", "D"))
+	assertOrder(t, s, 1, "A", "B", "C")
+	assertOrder(t, s, 2, "D", "E")
+	return s, ids
 }
 
 // metadataStorageClass returns SQLite's storage class of the stored metadata.
@@ -212,37 +312,135 @@ func TestListTodosNewestFirst(t *testing.T) {
 	}
 }
 
-// Sequential inserts cannot tell "created_at DESC, id DESC" from "id DESC", so
-// this inserts rows whose timestamps run against the id order, and a tie.
-func TestListTodosOrdersByCreatedAtThenID(t *testing.T) {
-	s := newTestStore(t)
-	rows := []struct{ title, createdAt string }{
-		{"id1 oldest", "2026-01-01T00:00:00.000Z"},
-		{"id2 newest, tied", "2026-01-03T00:00:00.000Z"},
-		{"id3 newest, tied", "2026-01-03T00:00:00.000Z"},
-		{"id4 middle", "2026-01-02T00:00:00.000Z"},
-	}
-	for _, r := range rows {
-		_, err := s.db.Exec(
-			`INSERT INTO todos (title, category_id, created_at, updated_at) VALUES (?, 1, ?, ?)`,
-			r.title, r.createdAt, r.createdAt)
-		if err != nil {
-			t.Fatalf("insert %q: %v", r.title, err)
-		}
-	}
-
+// listedTitles returns the titles ListTodos returns, in its order.
+func listedTitles(t *testing.T, s *Store) []string {
+	t.Helper()
 	todos, err := s.ListTodos(t.Context())
 	if err != nil {
 		t.Fatalf("ListTodos: %v", err)
 	}
-
-	var got []string
+	titles := []string{}
 	for _, todo := range todos {
-		got = append(got, todo.Title)
+		titles = append(titles, todo.Title)
 	}
-	want := []string{"id3 newest, tied", "id2 newest, tied", "id4 middle", "id1 oldest"}
-	if !slices.Equal(got, want) {
-		t.Errorf("order = %q, want %q", got, want)
+	return titles
+}
+
+// ListTodos sorts by category_id, position, id (step 2 spec 4.3): the columns
+// one after the other, each from top to bottom.
+func TestListTodosOrdersByCategoryThenPosition(t *testing.T) {
+	t.Run("created through the store", func(t *testing.T) {
+		s := newTestStore(t)
+		createInOrder(t, s, 3, "X")
+		createInOrder(t, s, 1, "A", "B")
+
+		got := listedTitles(t, s)
+
+		if want := []string{"B", "A", "X"}; !slices.Equal(got, want) {
+			t.Errorf("ListTodos = %q, want %q", got, want)
+		}
+	})
+
+	// Created through the store, the newest todo is always on top of its column,
+	// so a sort by age (the order of step 1) or by id, newest first, gives the
+	// same list. These rows are inserted directly, with ids, categories and
+	// positions running against each other.
+	t.Run("position decides, not id or age", func(t *testing.T) {
+		s := newTestStore(t)
+		for _, r := range []struct {
+			title    string
+			category int64
+			position int64
+		}{
+			{"column 2, position 1", 2, 1},
+			{"column 2, position 0", 2, 0},
+			{"column 1, position 0", 1, 0},
+			{"column 3, position 0", 3, 0},
+		} {
+			_, err := s.db.Exec(`INSERT INTO todos (title, category_id, position) VALUES (?, ?, ?)`,
+				r.title, r.category, r.position)
+			if err != nil {
+				t.Fatalf("insert %q: %v", r.title, err)
+			}
+		}
+
+		got := listedTitles(t, s)
+
+		want := []string{"column 1, position 0", "column 2, position 0", "column 2, position 1", "column 3, position 0"}
+		if !slices.Equal(got, want) {
+			t.Errorf("ListTodos = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCreateTodoGoesToTop(t *testing.T) {
+	s := newTestStore(t)
+
+	for _, title := range []string{"A", "B", "C"} {
+		todo, err := s.CreateTodo(t.Context(), CreateTodoParams{Title: title, CategoryID: ptr(int64(1))})
+		if err != nil {
+			t.Fatalf("CreateTodo(%s): %v", title, err)
+		}
+		if todo.Position != 0 {
+			t.Errorf("%s: Position = %d, want 0 (a new todo goes to the top)", title, todo.Position)
+		}
+		assertDensePositions(t, s)
+	}
+	assertOrder(t, s, 1, "C", "B", "A")
+
+	// Another column is renumbered on its own.
+	d, err := s.CreateTodo(t.Context(), CreateTodoParams{Title: "D", CategoryID: ptr(int64(3))})
+	if err != nil {
+		t.Fatalf("CreateTodo(D): %v", err)
+	}
+	if d.Position != 0 {
+		t.Errorf("D: Position = %d, want 0 (the top of an empty column)", d.Position)
+	}
+	assertOrder(t, s, 3, "D")
+	assertOrder(t, s, 1, "C", "B", "A")
+	assertDensePositions(t, s)
+
+	// Without a category the todo goes to the top of the first column.
+	e, err := s.CreateTodo(t.Context(), CreateTodoParams{Title: "E"})
+	if err != nil {
+		t.Fatalf("CreateTodo(E): %v", err)
+	}
+	if e.Position != 0 || e.CategoryID != 1 {
+		t.Errorf("E: position %d in category %d, want position 0 in category 1", e.Position, e.CategoryID)
+	}
+	assertOrder(t, s, 1, "E", "C", "B", "A")
+	assertDensePositions(t, s)
+}
+
+func TestDeleteTodoClosesGap(t *testing.T) {
+	tests := []struct {
+		name, title  string
+		want1, want2 []string // the columns afterwards, from top to bottom
+	}{
+		{"middle of column 1", "B", []string{"C", "A"}, []string{"Z", "Y", "X"}},
+		{"top of column 1", "C", []string{"B", "A"}, []string{"Z", "Y", "X"}},
+		{"bottom of column 1", "A", []string{"C", "B"}, []string{"Z", "Y", "X"}},
+		{"middle of column 2", "Y", []string{"C", "B", "A"}, []string{"Z", "X"}},
+		{"top of column 2", "Z", []string{"C", "B", "A"}, []string{"Y", "X"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			// Both columns are as full as each other, so that a shift that took
+			// the wrong column, or none, shows up in the other one.
+			ids := createInOrder(t, s, 1, "A", "B", "C")
+			maps.Copy(ids, createInOrder(t, s, 2, "X", "Y", "Z"))
+			assertOrder(t, s, 1, "C", "B", "A")
+			assertOrder(t, s, 2, "Z", "Y", "X")
+
+			if err := s.DeleteTodo(t.Context(), ids[tc.title]); err != nil {
+				t.Fatalf("DeleteTodo(%s): %v", tc.title, err)
+			}
+
+			assertOrder(t, s, 1, tc.want1...)
+			assertOrder(t, s, 2, tc.want2...)
+			assertDensePositions(t, s)
+		})
 	}
 }
 
@@ -302,6 +500,8 @@ func TestConcurrentCreates(t *testing.T) {
 	if len(seen) != n {
 		t.Errorf("%d distinct titles stored, want %d", len(seen), n)
 	}
+	// Creates that overlap must not leave two todos on the same position.
+	assertDensePositions(t, s)
 }
 
 func TestUpdateTodoFields(t *testing.T) {
@@ -411,6 +611,161 @@ func TestUpdateTodoInvalidCategory(t *testing.T) {
 	if !sameTodo(stored, orig) {
 		t.Errorf("todo changed by a rejected update: got %s, want %s", showTodo(stored), showTodo(orig))
 	}
+}
+
+// Step 2 spec 4.3. Every test starts from the same board: column 1 holds
+// A, B, C, column 2 holds D, E and column 3 is empty, each from top to bottom.
+func TestUpdateTodoPosition(t *testing.T) {
+	type columns = map[int64][]string // category id -> titles, top to bottom; a missing column is empty
+	tests := []struct {
+		name   string
+		move   string // title of the todo to update
+		params UpdateTodoParams
+		want   columns // the board afterwards
+	}{
+		// The position counts in the column without the todo itself.
+		{"down within column", "A", UpdateTodoParams{Position: ptr(int64(2))},
+			columns{1: {"B", "C", "A"}, 2: {"D", "E"}}},
+		{"up within column", "C", UpdateTodoParams{Position: ptr(int64(0))},
+			columns{1: {"C", "A", "B"}, 2: {"D", "E"}}},
+		{"to the middle", "A", UpdateTodoParams{Position: ptr(int64(1))},
+			columns{1: {"B", "A", "C"}, 2: {"D", "E"}}},
+		{"across columns at index", "B", UpdateTodoParams{CategoryID: ptr(int64(2)), Position: ptr(int64(1))},
+			columns{1: {"A", "C"}, 2: {"D", "B", "E"}}},
+		{"across past the end", "A", UpdateTodoParams{CategoryID: ptr(int64(2)), Position: ptr(int64(99))},
+			columns{1: {"B", "C"}, 2: {"D", "E", "A"}}},
+		{"within past the end", "A", UpdateTodoParams{Position: ptr(int64(99))},
+			columns{1: {"B", "C", "A"}, 2: {"D", "E"}}},
+		{"category only goes to top", "C", UpdateTodoParams{CategoryID: ptr(int64(2))},
+			columns{1: {"A", "B"}, 2: {"C", "D", "E"}}},
+		{"same category keeps place", "B", UpdateTodoParams{CategoryID: ptr(int64(1))},
+			columns{1: {"A", "B", "C"}, 2: {"D", "E"}}},
+		{"title only keeps place", "B", UpdateTodoParams{Title: ptr("B2")},
+			columns{1: {"A", "B2", "C"}, 2: {"D", "E"}}},
+
+		// Beyond the cases of the brief.
+		{"same position keeps place", "B", UpdateTodoParams{Position: ptr(int64(1))},
+			columns{1: {"A", "B", "C"}, 2: {"D", "E"}}},
+		// Another column has room for one more place than the column the todo
+		// leaves: the end is position 2 there, and 2 must not be cut back to 1.
+		{"across to the end exactly", "A", UpdateTodoParams{CategoryID: ptr(int64(2)), Position: ptr(int64(2))},
+			columns{1: {"B", "C"}, 2: {"D", "E", "A"}}},
+		{"into an empty column", "A", UpdateTodoParams{CategoryID: ptr(int64(3)), Position: ptr(int64(0))},
+			columns{1: {"B", "C"}, 2: {"D", "E"}, 3: {"A"}}},
+		{"into an empty column past the end", "B", UpdateTodoParams{CategoryID: ptr(int64(3)), Position: ptr(int64(5))},
+			columns{1: {"A", "C"}, 2: {"D", "E"}, 3: {"B"}}},
+		{"within the largest position", "A", UpdateTodoParams{Position: ptr(int64(math.MaxInt64))},
+			columns{1: {"B", "C", "A"}, 2: {"D", "E"}}},
+		{"title and position", "B", UpdateTodoParams{Title: ptr("B2"), Position: ptr(int64(0))},
+			columns{1: {"B2", "A", "C"}, 2: {"D", "E"}}},
+		// Every move above starts in column 1; these start in column 2.
+		{"up within the second column", "E", UpdateTodoParams{Position: ptr(int64(0))},
+			columns{1: {"A", "B", "C"}, 2: {"E", "D"}}},
+		{"from the second column to the first", "D", UpdateTodoParams{CategoryID: ptr(int64(1)), Position: ptr(int64(1))},
+			columns{1: {"A", "D", "B", "C"}, 2: {"E"}}},
+		{"from the second column to the third", "D", UpdateTodoParams{CategoryID: ptr(int64(3))},
+			columns{1: {"A", "B", "C"}, 2: {"E"}, 3: {"D"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ids := newBoard(t)
+			before, err := s.GetTodo(t.Context(), ids[tc.move])
+			if err != nil {
+				t.Fatalf("GetTodo: %v", err)
+			}
+			time.Sleep(20 * time.Millisecond) // timestamps have millisecond resolution
+
+			got, err := s.UpdateTodo(t.Context(), ids[tc.move], tc.params)
+			if err != nil {
+				t.Fatalf("UpdateTodo: %v", err)
+			}
+
+			for categoryID := int64(1); categoryID <= 3; categoryID++ {
+				assertOrder(t, s, categoryID, tc.want[categoryID]...)
+			}
+			assertDensePositions(t, s)
+
+			// The returned todo knows where it ended up: its column, and its
+			// position is its index in that column.
+			wantCategory, wantPosition := int64(-1), int64(-1)
+			for categoryID, titles := range tc.want {
+				if i := slices.Index(titles, got.Title); i >= 0 {
+					wantCategory, wantPosition = categoryID, int64(i)
+				}
+			}
+			if got.CategoryID != wantCategory || got.Position != wantPosition {
+				t.Errorf("UpdateTodo returned category %d, position %d; want category %d, position %d",
+					got.CategoryID, got.Position, wantCategory, wantPosition)
+			}
+			if !got.UpdatedAt.After(before.UpdatedAt) {
+				t.Errorf("UpdatedAt = %v, want it after %v", got.UpdatedAt, before.UpdatedAt)
+			}
+			if got.ID != before.ID || !got.CreatedAt.Equal(before.CreatedAt) {
+				t.Errorf("UpdateTodo = %s, want the same id and created_at as %s", showTodo(got), showTodo(before))
+			}
+			stored, err := s.GetTodo(t.Context(), got.ID)
+			if err != nil {
+				t.Fatalf("GetTodo: %v", err)
+			}
+			if !sameTodo(stored, got) {
+				t.Errorf("GetTodo = %s, want what UpdateTodo returned: %s", showTodo(stored), showTodo(got))
+			}
+		})
+	}
+}
+
+// All four fields at once: the single UPDATE statement binds them by position,
+// so a mix-up between neighbouring parameters shows here.
+func TestUpdateTodoAllFieldsWithPosition(t *testing.T) {
+	s, ids := newBoard(t)
+
+	got, err := s.UpdateTodo(t.Context(), ids["B"], UpdateTodoParams{
+		Title:      ptr("B2"),
+		CategoryID: ptr(int64(2)),
+		Position:   ptr(int64(1)),
+		Metadata:   json.RawMessage(`{"k":1}`),
+	})
+	if err != nil {
+		t.Fatalf("UpdateTodo: %v", err)
+	}
+
+	if got.Title != "B2" || got.CategoryID != 2 || got.Position != 1 || string(got.Metadata) != `{"k":1}` {
+		t.Errorf("UpdateTodo = %s, want title B2, category 2, position 1, metadata {\"k\":1}", showTodo(got))
+	}
+	assertOrder(t, s, 1, "A", "C")
+	assertOrder(t, s, 2, "D", "B2", "E")
+	assertDensePositions(t, s)
+}
+
+// The errors are those of step 1, and a rejected update moves nothing.
+func TestUpdateTodoPositionErrors(t *testing.T) {
+	t.Run("missing todo is reported before the category", func(t *testing.T) {
+		s, _ := newBoard(t)
+
+		_, err := s.UpdateTodo(t.Context(), 999, UpdateTodoParams{CategoryID: ptr(int64(99)), Position: ptr(int64(0))})
+
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+		assertOrder(t, s, 1, "A", "B", "C")
+		assertOrder(t, s, 2, "D", "E")
+		assertDensePositions(t, s)
+	})
+
+	t.Run("invalid category changes nothing", func(t *testing.T) {
+		s, ids := newBoard(t)
+
+		_, err := s.UpdateTodo(t.Context(), ids["B"], UpdateTodoParams{
+			Title: ptr("B2"), CategoryID: ptr(int64(99)), Position: ptr(int64(0)),
+		})
+
+		if !errors.Is(err, ErrInvalidCategory) {
+			t.Errorf("err = %v, want ErrInvalidCategory", err)
+		}
+		assertOrder(t, s, 1, "A", "B", "C") // B has not been renamed or moved
+		assertOrder(t, s, 2, "D", "E")
+		assertDensePositions(t, s)
+	})
 }
 
 func TestDeleteTodo(t *testing.T) {

@@ -50,14 +50,27 @@ cd frontend && npm test && npm run lint && npm run build
 |---|---|---|
 | GET | `/api/health` | `{"status":"ok"}` |
 | GET | `/api/categories` | Sütunlar, `position` sırasıyla |
-| GET | `/api/todos` | Todo'lar, en yeni üstte |
+| GET | `/api/todos` | Todo'lar, sütun sütun ve her sütunda yukarıdan aşağı (`position`) |
 | POST | `/api/todos` | `{"title", "category_id"?, "metadata"?}` → 201 |
 | GET | `/api/todos/{id}` | Tek todo |
-| PATCH | `/api/todos/{id}` | `title`, `category_id` (sütun taşıma), `metadata` alanlarından en az biri |
+| PATCH | `/api/todos/{id}` | `title`, `category_id` (sütun taşıma), `position` (sütundaki sıra, 0 = en üst), `metadata` alanlarından en az biri |
 | DELETE | `/api/todos/{id}` | 204 |
 
 Hatalar `{"error": "..."}` biçiminde döner. Ayrıntılar ve doğrulama kuralları:
 [`docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md`](docs/superpowers/specs/2026-10-24-todo-app-foundation-design.md) §6.
+
+## Tasarım
+
+Arayüz **Pano** (skeuomorfizm) temasını kullanır: mantar pano, ahşap çerçeveli sütunlar,
+bantlı yapışkan notlar. Kartlar sürüklenerek sütunlar arasında taşınır ve sütun içinde
+sıralanır; sıra veritabanında saklanır. (Adım 2'de denenen diğer 4 tasarım kaldırıldı.)
+
+Tema `frontend/src/themes/skeuo.css` dosyasındadır ve bileşenlerdeki anlamlı sınıfları
+(`.board`, `.column`, `.card`, `.card-body`, ...) `[data-theme="skeuo"]` altında stillendirir;
+sınıf listesi tasarım spec'inde (`docs/superpowers/specs/2026-10-24-todo-app-designs-dnd-design.md`
+§5.3). **Yeni tema eklemek:** `frontend/src/themes/<id>.css` dosyası, `frontend/src/index.css`'e bir
+`@import` satırı ve `frontend/src/themes/index.ts` listesine bir girdi. İki ya da daha fazla tema
+olunca sağ üstteki tema menüsü kendiliğinden görünür.
 
 ## Proje yapısı
 
@@ -69,7 +82,9 @@ backend/
     migrations/        NNNN_aciklama.sql — açılışta sırayla, bir kez uygulanır
 frontend/
   src/api.ts           tipli API istemcisi
-  src/components/      pano, ekleme formu, kart
+  src/board.ts         sürükle-bırak sonrası yerel sıralama (API ile aynı kural)
+  src/components/      pano (sürükle-bırak), ekleme formu, kart, tema menüsü
+  src/themes/          tema listesi (index.ts) ve tema başına bir CSS dosyası
 docs/superpowers/      tasarım spec'i ve implementation planı
 ```
 

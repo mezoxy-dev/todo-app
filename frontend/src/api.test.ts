@@ -11,6 +11,7 @@ const todo = {
   id: 7,
   title: 'Süt al',
   category_id: 3,
+  position: 0,
   metadata: {},
   created_at: '2026-10-24T12:00:00.123Z',
   updated_at: '2026-10-24T12:00:00.123Z',

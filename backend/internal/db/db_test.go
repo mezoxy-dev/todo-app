@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -115,8 +116,8 @@ func TestOpenCreatesDirAndAppliesMigrations(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("database file was not created: %v", err)
 	}
-	if got := userVersion(t, s); got != 1 {
-		t.Errorf("user_version = %d, want 1", got)
+	if got := userVersion(t, s); got != 2 {
+		t.Errorf("user_version = %d, want 2", got)
 	}
 	got, err := s.ListCategories(t.Context())
 	if err != nil {
@@ -140,8 +141,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 
 	second := openStore(t, path)
 
-	if got := userVersion(t, second); got != 1 {
-		t.Errorf("user_version = %d, want 1", got)
+	if got := userVersion(t, second); got != 2 {
+		t.Errorf("user_version = %d, want 2", got)
 	}
 	got, err := second.ListCategories(t.Context())
 	if err != nil {
@@ -329,4 +330,62 @@ func TestMigrateRejectsInvalidMigrationSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Migration 0002 on a database that step 1 filled: every column keeps the order
+// it was shown in (newest on top), now as positions 0..n-1. Migration 0001 is
+// applied alone first, so the rows are inserted into the schema that has no
+// position column yet.
+func TestMigration0002BackfillsPositions(t *testing.T) {
+	raw := openRawDB(t)
+	initSQL, err := fs.ReadFile(migrationsFS, "migrations/0001_init.sql")
+	if err != nil {
+		t.Fatalf("read migration 0001: %v", err)
+	}
+	if err := migrate(t.Context(), raw, fstest.MapFS{"0001_init.sql": {Data: initSQL}}); err != nil {
+		t.Fatalf("migrate with 0001 only: %v", err)
+	}
+	if got := pragmaInt(t, raw, "user_version"); got != 1 {
+		t.Fatalf("user_version = %d after 0001, want 1", got)
+	}
+
+	// Inserted in the order of their ids. Category 2 holds two todos of the same
+	// instant: the one with the higher id counts as newer, as it did in step 1.
+	for _, r := range []struct {
+		title     string
+		category  int64
+		createdAt string
+	}{
+		{"A", 1, "2026-01-01T00:00:01.000Z"},
+		{"B", 1, "2026-01-01T00:00:02.000Z"},
+		{"C", 1, "2026-01-01T00:00:03.000Z"},
+		{"D", 3, "2026-01-01T00:00:01.000Z"},
+		{"E", 3, "2026-01-01T00:00:02.000Z"},
+		{"F", 2, "2026-01-01T00:00:05.000Z"},
+		{"G", 2, "2026-01-01T00:00:05.000Z"},
+	} {
+		_, err := raw.Exec(
+			`INSERT INTO todos (title, category_id, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+			r.title, r.category, r.createdAt, r.createdAt)
+		if err != nil {
+			t.Fatalf("insert %q: %v", r.title, err)
+		}
+	}
+
+	migrations, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(t.Context(), raw, migrations); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	if got := pragmaInt(t, raw, "user_version"); got != 2 {
+		t.Errorf("user_version = %d, want 2", got)
+	}
+	s := &Store{db: raw}
+	assertOrder(t, s, 1, "C", "B", "A")
+	assertOrder(t, s, 2, "G", "F")
+	assertOrder(t, s, 3, "E", "D")
+	assertDensePositions(t, s)
 }
