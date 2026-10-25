@@ -1,5 +1,5 @@
-import { screen, waitFor, within } from '@testing-library/react'
-import { expect } from 'vitest'
+import { act, screen, waitFor, within } from '@testing-library/react'
+import { expect, vi } from 'vitest'
 import type { Todo } from '../api'
 import { mockApi, seedCategories } from './mockApi'
 
@@ -35,10 +35,26 @@ export function cardTitles(name: string): string[] {
     .map((item) => within(item).getByRole('heading').textContent ?? '')
 }
 
-// Waits until no move is being saved any more: every card select is usable again. A move shows
-// at once, so without this a test could end while its PATCH is still being answered.
+// The card of the todo with this title (a test keeps its titles unique).
+export function card(title: string): HTMLElement {
+  const element = screen.getByRole('heading', { name: title }).closest<HTMLElement>('.card')
+  if (element === null) throw new Error(`no card titled "${title}"`)
+  return element
+}
+
+// Waits until no move is being saved any more: every card category select is usable again. A move
+// shows at once, so without this a test could end while its PATCH is still being answered.
 export async function movesSettled() {
   await waitFor(() => {
-    for (const select of screen.queryAllByLabelText(/ için sütun$/)) expect(select).toBeEnabled()
+    for (const select of screen.queryAllByLabelText(/ için kategori$/)) expect(select).toBeEnabled()
+  })
+}
+
+// For a test under vi.useFakeTimers(): runs the timers that fall due within `ms` and lets the
+// replies of the mocked fetch settle, all inside act() because the app changes state meanwhile.
+// `advance()` alone only settles what is already on its way (the first load, a click).
+export async function advance(ms = 0) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
   })
 }

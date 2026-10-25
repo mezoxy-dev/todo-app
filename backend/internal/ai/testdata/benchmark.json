@@ -1,0 +1,56 @@
+[
+  { "title": "Süt al", "description": "2 litre, yağsız", "expected": "purchase" },
+  { "title": "Kulaklık sipariş et", "expected": "purchase" },
+  { "title": "Yumurta ve ekmek al", "expected": "purchase" },
+  { "title": "Yazıcı kartuşu satın al", "description": "HP 305 siyah", "expected": "purchase" },
+  { "title": "Kedi maması sipariş ver", "expected": "purchase" },
+
+  { "title": "Tatil için otel bak", "description": "Ağustos'ta, 2 kişi, deniz kenarı", "expected": "research" },
+  { "title": "Hediye", "expected": "research" },
+  { "title": "Laptop karşılaştır", "description": "Bütçe 30 bin TL, taşınabilir olsun", "expected": "research" },
+  { "title": "Python'da decorator nasıl çalışır öğren", "expected": "research" },
+  { "title": "Tatil", "expected": "research" },
+  { "title": "Hangi elektrik süpürgesi daha iyi araştır", "expected": "research" },
+  { "title": "Yeni telefon", "expected": "research" },
+  { "title": "Almanya vize şartlarını öğren", "expected": "research" },
+
+  { "title": "Annemi ara", "description": "Hafta sonu için plan yapacağız", "expected": "communication" },
+  { "title": "Ali'ye mail at", "expected": "communication" },
+  { "title": "Ayşe'ye doğum günü mesajı yaz", "expected": "communication" },
+  { "title": "Komşuya teşekkür mesajı gönder", "expected": "communication" },
+  { "title": "Eski arkadaşım Murat'ı ara", "expected": "communication" },
+
+  { "title": "Elektrik faturasını öde", "description": "Mobil uygulamadan ödeyeceğim", "expected": "payment" },
+  { "title": "Kirayı öde", "expected": "payment" },
+  { "title": "Vergi borcunu yatır", "expected": "payment" },
+  { "title": "Kredi kartı borcunu öde", "expected": "payment" },
+  { "title": "İnternet faturasını öde", "expected": "payment" },
+
+  { "title": "Dişçi randevusu al", "description": "Önümüzdeki hafta, öğleden sonra", "expected": "appointment" },
+  { "title": "Cuma günü saat 14:00 toplantı", "expected": "appointment" },
+  { "title": "Cumartesi akşamı arkadaşlarla yemek", "expected": "appointment" },
+  { "title": "Pazartesi 10:30'da araba muayenesi", "expected": "appointment" },
+  { "title": "Perşembe günü veli toplantısı", "expected": "appointment" },
+
+  { "title": "Sunumu bitir", "description": "Yönetim kurulu için, 12 slayt", "expected": "work" },
+  { "title": "Kod incelemesi yap", "expected": "work" },
+  { "title": "Müşteri raporunu hazırla", "expected": "work" },
+  { "title": "Sprint planlamasını hazırla", "expected": "work" },
+  { "title": "4521 numaralı hatayı düzelt", "expected": "work" },
+
+  { "title": "Çamaşır yıka", "description": "Beyazlar ayrı", "expected": "home" },
+  { "title": "Spora git", "expected": "home" },
+  { "title": "Balkondaki çiçekleri sula", "expected": "home" },
+  { "title": "Bulaşıkları makineye diz", "expected": "home" },
+  { "title": "Her gün iki litre su iç", "expected": "home" },
+  { "title": "Banyo yap", "expected": "home" },
+
+  { "title": "Bakkala git", "expected": "purchase" },
+  { "title": "Markete uğra", "expected": "purchase" },
+  { "title": "Pazar alışverişi yap", "expected": "purchase" },
+
+  { "title": "Dua et", "expected": "other" },
+  { "title": "Rüya günlüğüne yaz", "expected": "other" },
+  { "title": "Gün batımını izle", "expected": "other" },
+  { "title": "Yıldızlara bak", "expected": "other" }
+]

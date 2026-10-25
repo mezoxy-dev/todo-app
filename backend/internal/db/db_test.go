@@ -6,16 +6,87 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 )
 
-// wantCategories are the categories seeded by migration 0001, in column order.
+// The ids migration 0003 gives the categories in a fresh database. The three
+// columns of step 2 had the ids 1-3 and are deleted; AUTOINCREMENT never reuses
+// an id, so the new categories start at 4, in the order of their positions.
+// wantCategories checks these against the database.
+const (
+	catInbox int64 = 4 + iota
+	catPurchase
+	catResearch
+	catCommunication
+	catPayment
+	catAppointment
+	catWork
+	catHome
+	catOther
+)
+
+// wantCategories are the categories seeded by migration 0003, in column order.
+// The descriptions are those of the SQL in step 3 spec 4, character for
+// character: the AI instruction is built from them.
 var wantCategories = []Category{
-	{ID: 1, Name: "Henüz yapılmadı", Position: 1},
-	{ID: 2, Name: "Yapılıyor", Position: 2},
-	{ID: 3, Name: "Tamamlandı", Position: 3},
+	{ID: catInbox, Key: "inbox", Name: "Gelen kutusu", Position: 0,
+		Description: "Sistem sütunu: sınıflandırılmayı bekleyen ya da sınıflandırılamayan kartlar."},
+	{ID: catPurchase, Key: "purchase", Name: "Satın alım", Position: 1,
+		Description: "Satın alınacak ya da sipariş edilecek şeyler; markete, bakkala ya da pazara gitmek ve alışveriş yapmak. Örnek: süt al, kulaklık sipariş et, bakkala git, market alışverişi yap."},
+	{ID: catResearch, Key: "research", Name: "Araştırma", Position: 2,
+		Description: "Bilgi toplama, öğrenme, karşılaştırma ya da ne yapılacağı için gerekli bilgisi verilmemiş belirsiz işler. Örnek: tatil için otel bak, X nedir öğren, bir hediye bul."},
+	{ID: catCommunication, Key: "communication", Name: "İletişim", Position: 3,
+		Description: "Birini arama, mesaj ya da e-posta gönderme. Örnek: annemi ara, Ali'ye mail at."},
+	{ID: catPayment, Key: "payment", Name: "Ödeme", Position: 4,
+		Description: "Fatura, kira, vergi ve diğer para işleri. Örnek: elektrik faturasını öde."},
+	{ID: catAppointment, Key: "appointment", Name: "Randevu & Etkinlik", Position: 5,
+		Description: "Tarihi ya da saati olan işler. Örnek: dişçi randevusu al, cuma toplantısı."},
+	{ID: catWork, Key: "work", Name: "İş", Position: 6,
+		Description: "Mesleki görevler. Örnek: sunumu bitir, kod incelemesi."},
+	{ID: catHome, Key: "home", Name: "Ev & Kişisel", Position: 7,
+		Description: "Evde yapılan işler, sağlık, spor ve kişisel bakım. Alışverişe gitmek buraya değil Satın alım'a girer. Örnek: çamaşır yıka, spora git, banyo yap."},
+	{ID: catOther, Key: "other", Name: "Diğer", Position: 8,
+		Description: "Hiçbir kategoriye uymayanlar."},
+}
+
+// wantKeys are the keys of wantCategories, in column order.
+var wantKeys = []string{
+	"inbox", "purchase", "research", "communication", "payment", "appointment", "work", "home", "other",
+}
+
+// migrateUpTo applies the embedded migrations whose version is at most n to raw,
+// so that a test can fill the database with the data of an earlier step and then
+// run the next migration on it.
+func migrateUpTo(t *testing.T, raw *sql.DB, n int) {
+	t.Helper()
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	files := fstest.MapFS{}
+	for _, e := range entries {
+		version, err := strconv.Atoi(e.Name()[:4]) // NNNN_description.sql
+		if err != nil {
+			t.Fatalf("migration %q: %v", e.Name(), err)
+		}
+		if version > n {
+			continue
+		}
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+e.Name())
+		if err != nil {
+			t.Fatalf("read migration %q: %v", e.Name(), err)
+		}
+		files[e.Name()] = &fstest.MapFile{Data: data}
+	}
+	if err := migrate(t.Context(), raw, files); err != nil {
+		t.Fatalf("migrate up to %d: %v", n, err)
+	}
+	if got := pragmaInt(t, raw, "user_version"); got != n {
+		t.Fatalf("user_version = %d after migrating up to %d", got, n)
+	}
 }
 
 // newTestStore opens a Store on a fresh database file in t.TempDir(). The store
@@ -116,8 +187,8 @@ func TestOpenCreatesDirAndAppliesMigrations(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("database file was not created: %v", err)
 	}
-	if got := userVersion(t, s); got != 2 {
-		t.Errorf("user_version = %d, want 2", got)
+	if got := userVersion(t, s); got != 3 {
+		t.Errorf("user_version = %d, want 3", got)
 	}
 	got, err := s.ListCategories(t.Context())
 	if err != nil {
@@ -141,8 +212,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 
 	second := openStore(t, path)
 
-	if got := userVersion(t, second); got != 2 {
-		t.Errorf("user_version = %d, want 2", got)
+	if got := userVersion(t, second); got != 3 {
+		t.Errorf("user_version = %d, want 3", got)
 	}
 	got, err := second.ListCategories(t.Context())
 	if err != nil {
@@ -372,20 +443,98 @@ func TestMigration0002BackfillsPositions(t *testing.T) {
 		}
 	}
 
-	migrations, err := fs.Sub(migrationsFS, "migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrate(t.Context(), raw, migrations); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	// Only 0002: migration 0003 deletes the three columns this test looks at and
+	// has a test of its own.
+	migrateUpTo(t, raw, 2)
 
-	if got := pragmaInt(t, raw, "user_version"); got != 2 {
-		t.Errorf("user_version = %d, want 2", got)
-	}
 	s := &Store{db: raw}
 	assertOrder(t, s, 1, "C", "B", "A")
 	assertOrder(t, s, 2, "G", "F")
 	assertOrder(t, s, 3, "E", "D")
 	assertDensePositions(t, s)
+}
+
+// Migration 0003 on a database that step 2 filled (step 3 spec 4): the status
+// comes from the old column, every card moves to the inbox as pending, and the
+// inbox is ordered by old column and then old position. The cards are inserted
+// in an order that disagrees with that, so a migration that sorted by id or by
+// age would show.
+func TestMigration0003ConvertsStep2Data(t *testing.T) {
+	raw := openRawDB(t)
+	migrateUpTo(t, raw, 2)
+
+	// Step 2 columns: 1 "Henüz yapılmadı", 2 "Yapılıyor", 3 "Tamamlandı".
+	const metadata = `{"source":"step2","n":[1,2]}`
+	for _, r := range []struct {
+		title     string
+		category  int64
+		position  int64
+		createdAt string
+	}{
+		{"D", 3, 0, "2026-01-01T00:00:01.000Z"},
+		{"C2", 2, 1, "2026-01-01T00:00:02.000Z"},
+		{"C", 2, 0, "2026-01-01T00:00:03.000Z"},
+		{"B", 1, 1, "2026-01-01T00:00:04.000Z"},
+		{"A", 1, 0, "2026-01-01T00:00:05.000Z"},
+	} {
+		_, err := raw.Exec(
+			`INSERT INTO todos (title, category_id, position, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			r.title, r.category, r.position, metadata, r.createdAt, r.createdAt)
+		if err != nil {
+			t.Fatalf("insert %q: %v", r.title, err)
+		}
+	}
+
+	migrateUpTo(t, raw, 3)
+
+	s := &Store{db: raw}
+	categories, err := s.ListCategories(t.Context())
+	if err != nil {
+		t.Fatalf("ListCategories: %v", err)
+	}
+	var keys []string
+	for _, c := range categories {
+		keys = append(keys, c.Key)
+	}
+	if !reflect.DeepEqual(keys, wantKeys) {
+		t.Errorf("category keys = %q, want %q", keys, wantKeys)
+	}
+	if !reflect.DeepEqual(categories, wantCategories) {
+		t.Errorf("ListCategories = %+v, want %+v (the three old columns must be gone)", categories, wantCategories)
+	}
+
+	todos, err := s.ListTodos(t.Context())
+	if err != nil {
+		t.Fatalf("ListTodos: %v", err)
+	}
+	if len(todos) != 5 {
+		t.Fatalf("%d todos after the migration, want 5", len(todos))
+	}
+	wantStatus := map[string]string{"A": "todo", "B": "todo", "C": "in_progress", "C2": "in_progress", "D": "done"}
+	for _, todo := range todos {
+		if todo.Status != wantStatus[todo.Title] {
+			t.Errorf("%s: status = %q, want %q (from its old column)", todo.Title, todo.Status, wantStatus[todo.Title])
+		}
+		if todo.CategoryID != catInbox {
+			t.Errorf("%s: category_id = %d, want %d (the inbox)", todo.Title, todo.CategoryID, catInbox)
+		}
+		if todo.Classification != ClassificationPending {
+			t.Errorf("%s: classification = %q, want %q", todo.Title, todo.Classification, ClassificationPending)
+		}
+		if todo.Description != "" {
+			t.Errorf("%s: description = %q, want empty", todo.Title, todo.Description)
+		}
+		// Nothing but the place, the status and the classification is touched.
+		if string(todo.Metadata) != metadata {
+			t.Errorf("%s: metadata = %s, want %s", todo.Title, todo.Metadata, metadata)
+		}
+		if !todo.CreatedAt.Equal(todo.UpdatedAt) {
+			t.Errorf("%s: updated_at %v differs from created_at %v, want both untouched", todo.Title, todo.UpdatedAt, todo.CreatedAt)
+		}
+	}
+	assertOrder(t, s, catInbox, "A", "B", "C", "C2", "D")
+	assertDensePositions(t, s)
+	if got := listedTitles(t, s); !reflect.DeepEqual(got, []string{"A", "B", "C", "C2", "D"}) {
+		t.Errorf("ListTodos = %q, want the inbox from top to bottom", got)
+	}
 }

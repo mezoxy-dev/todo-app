@@ -8,18 +8,29 @@ import (
 	"net/http"
 	"time"
 
+	"todoapp/internal/applog"
 	"todoapp/internal/db"
 )
+
+// Enqueuer takes the ids of the todos that wait for the AI. The server hands it
+// a todo as soon as it is created or sent back with "classify"; *classify.Worker
+// is the one it is used with.
+type Enqueuer interface {
+	Enqueue(id int64)
+}
 
 // server holds what the handlers need.
 type server struct {
 	store *db.Store
+	logs  *applog.Buffer // what happens to the todos, for the log panel (step 3 spec 8)
+	queue Enqueuer
 }
 
 // New returns the handler that serves the API on top of store. Every request
-// is logged.
-func New(store *db.Store) http.Handler {
-	s := &server{store: store}
+// is logged to the console; the changes to the todos are also written to logs,
+// and todos that need the AI are handed to queue.
+func New(store *db.Store, logs *applog.Buffer, queue Enqueuer) http.Handler {
+	s := &server{store: store, logs: logs, queue: queue}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", health)
@@ -29,6 +40,8 @@ func New(store *db.Store) http.Handler {
 	mux.HandleFunc("GET /api/todos/{id}", s.getTodo)
 	mux.HandleFunc("PATCH /api/todos/{id}", s.updateTodo)
 	mux.HandleFunc("DELETE /api/todos/{id}", s.deleteTodo)
+	mux.HandleFunc("POST /api/todos/{id}/classify", s.classifyTodo)
+	mux.HandleFunc("GET /api/logs", s.listLogs)
 	return logRequests(mux)
 }
 

@@ -1,17 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createTodo, getCategories, updateTodo } from './api'
+import { classifyTodo, createTodo, getCategories, getLogs, updateTodo } from './api'
 
 const categories = [
-  { id: 1, name: 'Henüz yapılmadı', position: 1 },
-  { id: 2, name: 'Yapılıyor', position: 2 },
-  { id: 3, name: 'Tamamlandı', position: 3 },
+  { id: 4, key: 'inbox', name: 'Gelen kutusu', position: 0 },
+  { id: 5, key: 'purchase', name: 'Satın alım', position: 1 },
+  { id: 6, key: 'research', name: 'Araştırma', position: 2 },
 ]
 
 const todo = {
   id: 7,
   title: 'Süt al',
-  category_id: 3,
+  description: '2 litre',
+  category_id: 4,
   position: 0,
+  status: 'done',
+  classification: 'pending',
   metadata: {},
   created_at: '2026-10-24T12:00:00.123Z',
   updated_at: '2026-10-24T12:00:00.123Z',
@@ -46,13 +49,14 @@ describe('api client', () => {
   it('createTodo POSTs JSON and returns the created todo', async () => {
     const fetchMock = stubFetch(jsonResponse(todo, 201))
 
-    await expect(createTodo({ title: 'Süt al', category_id: 3 })).resolves.toEqual(todo)
+    await expect(createTodo({ title: 'Süt al', description: '2 litre', status: 'done' })).resolves.toEqual(todo)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    // No category: the server puts a new todo in Gelen kutusu and the AI picks the column.
     expect(fetchMock).toHaveBeenCalledWith('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Süt al', category_id: 3 }),
+      body: JSON.stringify({ title: 'Süt al', description: '2 litre', status: 'done' }),
     })
   })
 
@@ -67,6 +71,70 @@ describe('api client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category_id: 2 }),
     })
+  })
+
+  it('updateTodo PATCHes the status and the description of a todo', async () => {
+    const fetchMock = stubFetch(jsonResponse({ ...todo, status: 'in_progress', description: 'yeni' }))
+
+    await updateTodo(7, { status: 'in_progress', description: 'yeni' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/todos/7', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'in_progress', description: 'yeni' }),
+    })
+  })
+
+  it('classifyTodo POSTs /api/todos/7/classify without a body and returns the todo', async () => {
+    // 202 Accepted: the todo is back in Gelen kutusu and queued again.
+    const fetchMock = stubFetch(jsonResponse(todo, 202))
+
+    await expect(classifyTodo(7)).resolves.toEqual(todo)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/todos/7/classify', { method: 'POST' })
+  })
+
+  it('classifyTodo rejects with the API error message when the todo does not exist', async () => {
+    stubFetch(jsonResponse({ error: 'todo not found' }, 404))
+
+    await expect(classifyTodo(99)).rejects.toThrow(new Error('todo not found'))
+  })
+
+  it('getLogs GETs /api/logs without a query by default', async () => {
+    const reply = { entries: [], last_seq: 0, truncated: false }
+    const fetchMock = stubFetch(jsonResponse(reply))
+
+    await expect(getLogs()).resolves.toEqual(reply)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/logs')
+    expect(init?.method ?? 'GET').toBe('GET')
+  })
+
+  it('getLogs passes after and limit as the query', async () => {
+    const fetchMock = stubFetch(jsonResponse({ entries: [], last_seq: 5, truncated: false }))
+
+    await getLogs(5, 200)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/logs?after=5&limit=200')
+  })
+
+  it('getLogs sends a single parameter alone, and after=0 as well', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ entries: [], last_seq: 0, truncated: false }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getLogs(undefined, 200)
+    await getLogs(7)
+    // 0 is a real value (the whole buffer), not "no parameter".
+    await getLogs(0)
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/logs?limit=200',
+      '/api/logs?after=7',
+      '/api/logs?after=0',
+    ])
   })
 
   it('rejects with the API error message on non-2xx', async () => {
