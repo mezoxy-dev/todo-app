@@ -1,0 +1,23 @@
+name: todo-app
+
+services:
+  app:
+    build: .
+    image: todo-app:local
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - todo-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  todo-data:

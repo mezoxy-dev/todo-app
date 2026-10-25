@@ -3,3 +3,8 @@ backend/data/
 *.db
 *.db-shm
 *.db-wal
+
+# Docker ortam dosyası (Gemini anahtarı içerebilir)
+.env
+.env.*
+!.env.example
